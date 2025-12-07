@@ -1,6 +1,6 @@
 # RAD-Parser API Reference
 
-This guide documents every public export from `@smallvis/rad-parser`. The package is organized into several conceptual layers: parser entry points, streaming helpers, pixel-data utilities, compression utilities, dictionary/tag helpers, value parsers, and VR detection. Each section below lists the function signature, purpose, and usage notes.
+This guide documents every public export from `rad-parse`. The package is organized into several conceptual layers: parser entry points, streaming helpers, pixel-data utilities, compression utilities, dictionary/tag helpers, value parsers, and VR detection. Each section below lists the function signature, purpose, and usage notes.
 
 ## Parser Entry Points
 

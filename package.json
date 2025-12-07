@@ -1,5 +1,5 @@
 {
-  "name": "@smallvis/rad-parser",
+  "name": "rad-parse",
   "version": "1.0.0",
   "description": "A lightweight, performant, self-contained DICOM parser with zero external dependencies",
   "main": "./dist/index.js",
@@ -24,7 +24,7 @@
     "transfer-syntax",
     "pixel-data"
   ],
-  "author": "SmallVis Team",
+  "author": "AjRoAs",
   "license": "MIT",
   "repository": {
     "type": "git",
