@@ -335,8 +335,8 @@ To publish from CI, configure the repository secrets `NPM_TOKEN` (for npm publis
 
 Run `npm run test` to execute the Vitest suite that lives under `tests/` and targets the `src` sources directly.
 For coverage data, run `npx vitest run --coverage` (it now requires `@vitest/coverage-v8`, which is listed in dev dependencies).
-
 The integration test (`tests/integration.test.ts`) builds synthetic DICOM byte streams (explicit Part 10 + implicit VR) and exercises `canParse`, `extractTransferSyntax`, `parseWithMetadata`, and `parseWithRadParser` against a real parsing path.
+Additional unit coverage now includes `tests/vrDetection.test.ts`, which verifies the VR detection heuristics used for implicit transfer syntaxes and private tags, alongside the SafeDataView/dictionary helpers already covered.
 
 ## API Reference
 
