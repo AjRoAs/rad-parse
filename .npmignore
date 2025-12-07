@@ -6,6 +6,7 @@
 tsconfig.json
 .gitignore
 .npmignore
+.npmrc
 
 # IDE
 .vscode/
@@ -21,6 +22,15 @@ Thumbs.db
 # Testing
 *.test.ts
 coverage/
+
+# Benchmark files
+benchmark-results.json
+benchmark.ts
+
+# Docs and auxiliary assets (we only publish from `files`)
+core/
+docs/
+tests/
 
 # Environment
 .env

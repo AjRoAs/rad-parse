@@ -26,7 +26,7 @@ npm install @smallvis/rad-parser
 Or install from GitHub:
 
 ```bash
-npm install github:smallvis/rad-parser
+npm install github:AjRoAs/rad-parse
 ```
 
 The parser is self-contained and has **zero external dependencies**.
@@ -364,15 +364,6 @@ efferent-dicom       50       50/50      8.20 ms      3.92 ms      18.50 ms     
 
 ================================================================================
 Detailed results saved to: C:\Users\aroja\CODE\smallvis\src\lib\rad-parser\benchmark-results.json
-```
---------------------------------------------------------------------------------
-Parser               Files    Success    Avg Time     Min Time     Max Time     Avg Elements    
---------------------------------------------------------------------------------
-rad-parser           50       50/50      12.34 ms     8.21 ms      25.67 ms     245            
-dcmjs                50       50/50      45.67 ms     32.10 ms     78.90 ms     245            
-...
-```
-
 ## API Documentation
 
 Every public export is documented in [`docs/api.md`](docs/api.md), which enumerates the parser entry points (`parseWithRadParser`, `parseWithMetadata`, `extractTransferSyntax`, `canParse`), the streaming helpers (`StreamingParser`, `parseFromStream`, `parseFromAsyncIterator`), the pixel-data utilities (`extractPixelData`, `isCompressedTransferSyntax`), and the compression helpers (`decompressJPEG`, `decompressPixelData`, `supportsImageDecoder`). The guide also captures utilities like `formatTagWithComma`, `normalizeTag`, `parsePersonName`, and `detectVR` so you can find the right helper without digging through the source tree.
@@ -382,7 +373,7 @@ Every public export is documented in [`docs/api.md`](docs/api.md), which enumera
 Extended documentation lives under `docs/` (see `docs/api.md`) and is mirrored in the GitHub wiki. When you update the README or introduce new modules, be sure to:
 
 1. Update `docs/api.md` with any new exports so the reference stays fresh.
-2. Synchronize narrative content with the GitHub wiki (`https://github.com/smallvis/rad-parser/wiki`) by copying the new sections or linking directly to the `docs/` files.
+2. Synchronize narrative content with the GitHub wiki (`https://github.com/AjRoAs/rad-parse/wiki`) by copying the new sections or linking directly to the `docs/` files.
 3. Use the wiki for ongoing topics such as release checklists, contribution guidance, and troubleshooting notes that should be easy for contributors to browse.
 
 ## API Reference
