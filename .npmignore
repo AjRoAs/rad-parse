@@ -1,0 +1,26 @@
+# Source files (only dist should be published)
+*.ts
+!*.d.ts
+
+# Development files
+tsconfig.json
+.gitignore
+.npmignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing
+*.test.ts
+coverage/
+
+# Environment
+.env

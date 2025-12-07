@@ -1,0 +1,59 @@
+{
+  "name": "@smallvis/rad-parser",
+  "version": "1.0.0",
+  "description": "A lightweight, performant, self-contained DICOM parser with zero external dependencies",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "type": "module",
+  "keywords": [
+    "dicom",
+    "parser",
+    "medical-imaging",
+    "radiology",
+    "dicom-parser",
+    "zero-dependencies",
+    "lightweight",
+    "typescript",
+    "dicom-part10",
+    "transfer-syntax",
+    "pixel-data"
+  ],
+  "author": "SmallVis Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smallvis/rad-parser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/smallvis/rad-parser/issues"
+  },
+  "homepage": "https://github.com/smallvis/rad-parser#readme",
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}
+
