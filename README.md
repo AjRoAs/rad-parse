@@ -2,7 +2,7 @@
 
 **RAD-Parser** is a lightweight, performant, self-contained DICOM parser implementation with zero external dependencies. Designed for safety, efficiency, and reliability in medical imaging applications.
 
-[![npm version](https://img.shields.io/npm/v/rad-parse.svg)](https://www.npmjs.com/package/rad-parse)
+[![npm version](https://img.shields.io/npm/v/rad-parser.svg)](https://www.npmjs.com/package/rad-parser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 
@@ -20,7 +20,7 @@
 ## Installation
 
 ```bash
-npm install rad-parse
+npm install rad-parser
 ```
 
 Or install from GitHub:
@@ -36,7 +36,7 @@ The parser is self-contained and has **zero external dependencies**.
 ### Basic Usage
 
 ```typescript
-import { parseWithRadParser } from 'rad-parse';
+import { parseWithRadParser } from 'rad-parser';
 
 // Parse a DICOM file from a Uint8Array
 const byteArray = new Uint8Array(/* DICOM file data */);
