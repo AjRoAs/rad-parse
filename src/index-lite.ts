@@ -1,18 +1,11 @@
 /**
- * RAD-Parser: In-House DICOM Parser Implementation
+ * RAD-Parser (dictionary-free bundle)
  *
- * A lightweight, performant, self-contained DICOM parser with no external dependencies.
- * Designed for safety and efficiency in medical imaging workloads.
- *
- * @module rad-parser
+ * This entry point mirrors `src/index.ts` but omits the dictionary helpers to keep
+ * the bundle size small when only core parsing utilities are needed.
  */
 
-/** Compression helpers exposed by the package. */
-export { decompressJPEG, decompressPixelData, supportsImageDecoder } from './compression';
-/** Dictionary and tag utilities */
-export { dicomDictionary, getTagName, isPrivateTag } from './dictionary';
 export { DicomParseError, createParseError } from './errors';
-/** Core parser entry points */
 export {
   canParse,
   extractTransferSyntax,
@@ -20,9 +13,7 @@ export {
   parseWithRadParser,
   type ParseResult,
 } from './parser';
-/** Pixel data utilities */
 export { extractPixelData, isCompressedTransferSyntax, type PixelDataResult } from './pixelData';
-/** Safe byte readers and sequence helpers */
 export { SafeDataView } from './SafeDataView';
 export { parseSequence } from './sequenceParser';
 export {

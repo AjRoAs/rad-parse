@@ -314,8 +314,11 @@ To simplify GitHub and npm releases, RAD-Parser emits two bundled builds in addi
 
 - `dist/rad-parser.js`: single-file ES module combining the entire parser
 - `dist/rad-parser.min.js`: minified version suitable for CDN or browser-based distributions
+- `dist/rad-parser-nodict.js`: dictionary-free build that packs only the runtime parser utilities, streaming helpers, and pixel-data helpers (ideal for clients that already resolve tag names elsewhere)
+- `dist/rad-parser-nodict.min.js`: minified version of the dictionary-free build
+- `dist/rad-parser-dictionary.js`: standalone dictionary export for clients that need the comprehensive DICOM tag mapping without the runtime parser
 
-Run `npm run release` to regenerate both artifacts (it runs `tsc` followed by the `esbuild` bundling pipeline shown above). This script also runs automatically before `npm publish`, so the npm release always includes the latest bundles. When creating a GitHub release, attach the full `dist` folder plus the `rad-parser.*.js` files so users can download the single-file builds directly.
+Run `npm run release` to regenerate both artifacts (it runs the `esbuild` bundling pipeline shown above). This script also runs automatically before `npm publish`, so the npm release always includes the latest bundles. When creating a GitHub release, attach the `rad-parser-bundles.zip` archive (which contains the four `rad-parser.*.js` bundles) and the individual bundle files so users can download them directly without culling the `dist/` tree.
 
 ### GitHub release automation
 
@@ -325,9 +328,10 @@ Pushing a tag that matches `v*` now triggers the GitHub `Release` workflow (`.gi
 2. Runs `npm publish` with `NODE_AUTH_TOKEN` derived from the `NPM_TOKEN` secret, keeping the npm package in sync.
 3. Creates a GitHub release for the tag and uploads:
 
-    - `rad-parser-dist.zip` (zipped `dist/` tree)
-    - `dist/rad-parser.js`
-    - `dist/rad-parser.min.js`
+- `rad-parser-bundles.zip` (zipped bundle flavors, now including the dictionary bundle)
+- `dist/rad-parser.js`
+- `dist/rad-parser.min.js`
+- `dist/rad-parser-dictionary.js`
 
 To publish from CI, configure the repository secrets `NPM_TOKEN` (for npm publish) and rely on the automatically provided `GITHUB_TOKEN` so the workflow can create releases and upload assets without additional credentials.
 
@@ -335,8 +339,20 @@ To publish from CI, configure the repository secrets `NPM_TOKEN` (for npm publis
 
 Run `npm run test` to execute the Vitest suite that lives under `tests/` and targets the `src` sources directly.
 For coverage data, run `npx vitest run --coverage` (it now requires `@vitest/coverage-v8`, which is listed in dev dependencies).
-The integration test (`tests/integration.test.ts`) builds synthetic DICOM byte streams (explicit Part 10 + implicit VR) and exercises `canParse`, `extractTransferSyntax`, `parseWithMetadata`, and `parseWithRadParser` against a real parsing path.
-Additional unit coverage now includes `tests/vrDetection.test.ts`, which verifies the VR detection heuristics used for implicit transfer syntaxes and private tags, alongside the SafeDataView/dictionary helpers already covered.
+
+The integration test (`tests/integration.test.ts`) builds synthetic DICOM byte streams (explicit Part 10 + implicit VR) and exercises `canParse`, `extractTransferSyntax`, `parseWithMetadata`, and `parseWithRadParser` against a real parsing path. Additional unit coverage now includes `tests/vrDetection.test.ts`, which verifies the VR detection heuristics used for implicit transfer syntaxes and private tags, alongside the SafeDataView/dictionary helpers already covered.
+
+## API Documentation
+
+Every public export is documented in [`docs/api.md`](docs/api.md), which enumerates the parser entry points (`parseWithRadParser`, `parseWithMetadata`, `extractTransferSyntax`, `canParse`), the streaming helpers (`StreamingParser`, `parseFromStream`, `parseFromAsyncIterator`), the pixel-data utilities (`extractPixelData`, `isCompressedTransferSyntax`), and the compression helpers (`decompressJPEG`, `decompressPixelData`, `supportsImageDecoder`). The guide also captures utilities like `formatTagWithComma`, `normalizeTag`, `parsePersonName`, and `detectVR` so you can find the right helper without digging through the source tree.
+
+## Documentation & Wiki
+
+Extended documentation lives under `docs/` (see `docs/api.md`) and is mirrored in the GitHub wiki. When you update the README or introduce new modules, be sure to:
+
+1. Update `docs/api.md` with any new exports so the reference stays fresh.
+2. Synchronize narrative content with the GitHub wiki (`https://github.com/smallvis/rad-parser/wiki`) by copying the new sections or linking directly to the `docs/` files.
+3. Use the wiki for ongoing topics such as release checklists, contribution guidance, and troubleshooting notes that should be easy for contributors to browse.
 
 ## API Reference
 

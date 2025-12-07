@@ -1,0 +1,1 @@
+export { dicomDictionary } from './dictionary';
