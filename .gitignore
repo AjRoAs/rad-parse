@@ -36,3 +36,13 @@ coverage/
 # Testing
 *.test.ts.snap
 
+# Benchmark output
+benchmark-results.json
+
+# Test data (ignore contents but keep folder structure)
+test_data/*
+!test_data/.gitkeep
+
+# Benchmark results
+benchmark-results.json
+

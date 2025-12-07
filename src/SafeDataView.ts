@@ -116,7 +116,7 @@ export class SafeDataView {
     while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 32)) {
       end--;
     }
-    
+
     // Decode based on character set
     return decodeString(bytes.slice(0, end), characterSet);
   }
@@ -139,30 +139,38 @@ export class SafeDataView {
 /**
  * Decode string based on DICOM character set
  */
+const decoderCache = new Map<string, TextDecoder>();
+
+function getDecoder(characterSet: string): TextDecoder {
+  const key = characterSet.toUpperCase();
+  if (decoderCache.has(key)) {
+    return decoderCache.get(key)!;
+  }
+
+  let label: string;
+  if (key.includes('ISO_IR 192') || key.includes('UTF-8')) {
+    label = 'utf-8';
+  } else if (key.includes('ISO_IR 100') || key.includes('ISO 2022 IR 100')) {
+    label = 'latin1';
+  } else {
+    label = 'utf-8';
+  }
+
+  const decoder = new TextDecoder(label);
+  decoderCache.set(key, decoder);
+  return decoder;
+}
+
 function decodeString(bytes: Uint8Array, characterSet: string): string {
-  // Handle common character sets
-  if (characterSet.includes('ISO_IR 192') || characterSet.includes('UTF-8')) {
-    try {
-      return new TextDecoder('utf-8').decode(bytes);
-    } catch {
-      // Fallback to ASCII
+  try {
+    return getDecoder(characterSet).decode(bytes);
+  } catch {
+    // Fallback to manual ASCII conversion
+    let str = '';
+    for (let i = 0; i < bytes.length; i++) {
+      str += String.fromCharCode(bytes[i]);
     }
+    return str;
   }
-  
-  if (characterSet.includes('ISO_IR 100') || characterSet.includes('ISO 2022 IR 100')) {
-    // Latin-1 / ISO 8859-1
-    try {
-      return new TextDecoder('latin1').decode(bytes);
-    } catch {
-      // Fallback
-    }
-  }
-  
-  // Default: ASCII/Latin-1
-  let str = '';
-  for (let i = 0; i < bytes.length; i++) {
-    str += String.fromCharCode(bytes[i]);
-  }
-  return str;
 }
 
