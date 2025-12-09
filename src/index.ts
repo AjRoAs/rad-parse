@@ -15,11 +15,15 @@ export { DicomParseError, createParseError } from './errors';
 /** Core parser entry points */
 export {
   canParse,
-  extractTransferSyntax,
   parseWithMetadata,
-  parseWithRadParser,
+  fullParse,
+  mediumParse,
+  shallowParse,
+  parseWithRadParser, // Keep for backward compatibility
   type ParseResult,
+  type ParseOptions,
 } from './parser';
+export { extractTransferSyntax, TRANSFER_SYNTAX } from './extractTransferSyntax';
 /** Pixel data utilities */
 export { extractPixelData, isCompressedTransferSyntax, type PixelDataResult } from './pixelData';
 /** Safe byte readers and sequence helpers */
@@ -33,7 +37,7 @@ export {
   type StreamingOptions,
 } from './streaming';
 export { formatTagWithComma, normalizeTag } from './tagUtils';
-export type { DicomDataSet, DicomElement } from './types';
+export type { DicomDataSet, DicomElement, ShallowDicomDataSet, ShallowDicomElement, PixelDataInfo } from './types';
 export {
   parseAgeString,
   parseDate,

@@ -46,3 +46,37 @@ export interface DicomDataSet {
   elements: Record<string, DicomElement>;
 }
 
+
+/**
+ * Shallow DICOM Element structure
+ * Contains only location information, no values
+ */
+export interface ShallowDicomElement {
+  tag: string;
+  vr: string;
+  length: number;
+  dataOffset: number;
+}
+
+/**
+ * Shallow DICOM Data Set
+ * Map of tag -> ShallowDicomElement
+ */
+export interface ShallowDicomDataSet {
+  [tag: string]: ShallowDicomElement;
+}
+
+/**
+ * Pixel Data information structure
+ */
+export interface PixelDataInfo {
+  pixelData: Uint8Array; // The raw pixel data bytes
+  transferSyntax: string;
+  isEncapsulated: boolean;
+  fragments?: Uint8Array[]; // For encapsulated data
+  rows?: number;
+  columns?: number;
+  bitsAllocated?: number;
+  samplesPerPixel?: number;
+  photometricInterpretation?: string;
+}

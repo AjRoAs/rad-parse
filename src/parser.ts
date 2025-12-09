@@ -12,12 +12,13 @@
  * - dictionary: Tag dictionary and lookup
  */
 
+import { createParseError, DicomParseError } from './errors';
 import { isPrivateTag } from './dictionary';
 import { extractPixelData } from './pixelData';
 import { SafeDataView } from './SafeDataView';
 import { parseSequence } from './sequenceParser';
 import { formatTagWithComma, normalizeTag } from './tagUtils';
-import type { DicomDataSet, DicomElement } from './types';
+import type { DicomDataSet, DicomElement, ShallowDicomDataSet } from './types';
 import { parseValueByVR } from './valueParsers';
 import { detectVR, detectVRForPrivateTag, requiresExplicitLength } from './vrDetection';
 
@@ -117,29 +118,203 @@ export function canParse(byteArray: Uint8Array): boolean {
  * @param byteArray - The DICOM file as a Uint8Array
  * @returns A DicomDataSet compatible with the SmallVis parser system
  */
-export function parseWithRadParser(byteArray: Uint8Array): DicomDataSet {
+export function fullParse(byteArray: Uint8Array): DicomDataSet {
   try {
     const result = parseWithMetadata(byteArray);
     if (!result || !result.dataset) {
-      throw new Error('rad-parser: parseWithMetadata returned invalid result');
+      throw createParseError('parseWithMetadata returned invalid result');
     }
     return result.dataset;
   } catch (error) {
+    // Re-throw if it's already a DicomParseError to preserve context
+    if (error instanceof DicomParseError) {
+      throw error;
+    }
     // Re-throw with more context
     if (error instanceof Error) {
-      throw new Error(`rad-parser failed: ${error.message}`);
+      throw createParseError(`rad-parser failed: ${error.message}`, undefined, undefined, error);
     }
-    throw new Error('rad-parser failed: Unknown error');
+    throw createParseError('rad-parser failed: Unknown error');
   }
+}
+
+/**
+ * @deprecated Use fullParse instead
+ */
+export const parseWithRadParser = fullParse;
+
+/**
+ * Parse DICOM file using shallow parsing (tags only, no values)
+ * Optimized for speed. Similar to dicom-parser's default behavior.
+ *
+ * @param byteArray - The DICOM file as a Uint8Array
+ * @returns A ShallowDicomDataSet map
+ */
+export function shallowParse(byteArray: Uint8Array): ShallowDicomDataSet {
+  // Ensure ArrayBuffer and SafeDataView
+  let buffer: ArrayBuffer;
+  let byteOffset = 0;
+  if (byteArray.buffer instanceof ArrayBuffer) {
+    buffer = byteArray.buffer;
+    byteOffset = byteArray.byteOffset;
+  } else {
+    buffer = new ArrayBuffer(byteArray.byteLength);
+    const newView = new Uint8Array(buffer);
+    newView.set(byteArray);
+  }
+
+  const view = new SafeDataView(buffer, byteOffset, byteArray.byteLength);
+  
+  // Detect format
+  let detection: FormatDetection;
+  try {
+    detection = detectDicomFormat(view, buffer);
+  } catch {
+    // Fallback defaults if detection fails
+    detection = {
+      offset: 0,
+      isDicomPart10: false,
+      transferSyntax: TRANSFER_SYNTAX_IMPLICIT_VR_LITTLE_ENDIAN,
+      explicitVR: false,
+      littleEndian: true,
+      characterSet: 'ISO_IR 192'
+    };
+  }
+
+  view.setEndianness(detection.littleEndian);
+  view.setPosition(detection.offset);
+
+  const result: ShallowDicomDataSet = {};
+  const maxIterations = 100000; // Safety limit
+  let iterations = 0;
+  
+  const explicitVR = detection.explicitVR;
+
+  while (view.getRemainingBytes() >= 8 && iterations < maxIterations) {
+    iterations++;
+
+    // Save start position for data offset calculation
+    const elementStart = view.getPosition();
+    
+    // Read tag
+    const group = view.readUint16();
+    const element = view.readUint16();
+    
+    // Check for sequence/item delimiters
+    if (group === 0xfffe) {
+      if (element === 0xe0dd || element === 0xe00d || element === 0xe000) {
+        view.readUint32(); // Skip length
+        continue;
+      }
+    }
+
+    // Read VR and Length
+    let vr = 'UN';
+    let length: number;
+    let headerLength = 0;
+
+    if (explicitVR) {
+      const vrBytes = view.readBytes(2);
+      vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
+      
+      if (requiresExplicitLength(vr)) {
+        view.readUint16(); // Skip reserved
+        length = view.readUint32();
+        headerLength = 12; // 2+2+2+2+4
+      } else {
+        length = view.readUint16();
+        headerLength = 8; // 2+2+2+2
+      }
+    } else {
+      // Implicit VR
+      length = view.readUint32();
+      headerLength = 8; // 2+2+4
+      
+      // Minimal VR detection for consistency
+      const tagHex = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
+      // Skip advanced VR detection in shallow parse for speed
+    }
+
+    const dataOffset = elementStart + headerLength;
+    const tagKey = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
+
+    result[tagKey] = {
+      tag: tagKey,
+      vr,
+      length,
+      dataOffset
+    };
+
+    // Advance past value
+    if (length === 0xffffffff) {
+      // Undefined length - tricky for shallow parse without full sequence scanning.
+      // We will attempt to skip until delimiter (if it's a Sequence or Pixel Data)
+      if (vr === 'SQ' || (group === 0x7fe0 && element === 0x0010)) {
+         // Skip until Sequence Delimiter Item (FFFE,E0DD)
+         let skipped = 0;
+         while (view.getRemainingBytes() >= 8 && skipped < 50000000) { // Safety break
+           const g = view.readUint16();
+           const e = view.readUint16();
+           if (g === 0xfffe && e === 0xe0dd) {
+             view.readUint32(); // Skip length (0)
+             break;
+           }
+           // Optimized scan:
+           view.setPosition(view.getPosition() - 4 + 2); // Advance 2 bytes
+           skipped += 2;
+         }
+      } 
+    } else {
+      // Skip defined length
+      if (view.getRemainingBytes() >= length) {
+        view.setPosition(view.getPosition() + length);
+      } else {
+        break; // EOF
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Parse DICOM file but skip loading Pixel Data value
+ * Useful for reading metadata without memory overhead of image.
+ *
+ * @param byteArray - The DICOM file as a Uint8Array
+ * @returns A DicomDataSet
+ */
+export function mediumParse(byteArray: Uint8Array): DicomDataSet {
+  try {
+    const result = parseWithMetadata(byteArray, { skipPixelData: true });
+    if (!result || !result.dataset) {
+      throw createParseError('parseWithMetadata returned invalid result');
+    }
+    return result.dataset;
+  } catch (error) {
+    if (error instanceof DicomParseError) throw error;
+    if (error instanceof Error) {
+      throw createParseError(`mediumParse failed: ${error.message}`, undefined, undefined, error);
+    }
+    throw createParseError('mediumParse failed: Unknown error');
+  }
+}
+
+/**
+ * Options for parsing
+ */
+export interface ParseOptions {
+  skipPixelData?: boolean;
 }
 
 /**
  * Parse DICOM file with metadata
  *
  * @param byteArray - The DICOM file as a Uint8Array
+ * @param options - Parse options
  * @returns Parse result with dataset and metadata
  */
-export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
+export function parseWithMetadata(byteArray: Uint8Array, options: ParseOptions = {}): ParseResult {
   // Ensure we have an ArrayBuffer (not SharedArrayBuffer)
   let buffer: ArrayBuffer;
   if (byteArray.buffer instanceof ArrayBuffer) {
@@ -155,7 +330,7 @@ export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
   }
 
   if (buffer.byteLength < 8) {
-    throw new Error('rad-parser: File too small to be a valid DICOM file');
+    throw createParseError('File too small to be a valid DICOM file', undefined, 0);
   }
 
   const view = new SafeDataView(buffer);
@@ -165,8 +340,11 @@ export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
   try {
     detection = detectDicomFormat(view, buffer);
   } catch (error) {
-    throw new Error(
-      `rad-parser: Format detection failed - ${error instanceof Error ? error.message : 'Unknown error'}`
+    throw createParseError(
+      `Format detection failed - ${error instanceof Error ? error.message : 'Unknown error'}`,
+      undefined,
+      view.getPosition(),
+      error instanceof Error ? error : undefined
     );
   }
 
@@ -176,11 +354,12 @@ export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
 
   // Parse all data elements
   let characterSet = detection.characterSet;
-  const parseContext = {
+  const parseContext: ParseContext = {
     explicitVR: detection.explicitVR,
     littleEndian: detection.littleEndian,
     characterSet: characterSet,
     transferSyntax: detection.transferSyntax,
+    skipPixelData: options.skipPixelData
   };
 
   let dict: Record<string, DicomElement>;
@@ -193,8 +372,15 @@ export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
     normalizedElements = parseResult.normalizedElements;
     detectedCharacterSet = parseResult.detectedCharacterSet;
   } catch (error) {
-    throw new Error(
-      `rad-parser: Data element parsing failed - ${error instanceof Error ? error.message : 'Unknown error'}`
+    // If it's already a DicomParseError, it usually has tag/offset context
+    if (error instanceof DicomParseError) {
+      throw error;
+    }
+    throw createParseError(
+      `Data element parsing failed - ${error instanceof Error ? error.message : 'Unknown error'}`,
+      undefined,
+      view.getPosition(),
+      error instanceof Error ? error : undefined
     );
   }
 
@@ -214,7 +400,7 @@ export function parseWithMetadata(byteArray: Uint8Array): ParseResult {
     !dataset.dict ||
     typeof dataset.string !== 'function'
   ) {
-    throw new Error('rad-parser: Failed to create valid dataset structure');
+    throw createParseError('Failed to create valid dataset structure');
   }
 
   return {
@@ -280,7 +466,7 @@ function detectDicomFormat(view: SafeDataView, buffer: ArrayBuffer): FormatDetec
     try {
       const metaInfo = readMetaInformation(metaView);
       transferSyntax = metaInfo.transferSyntax || transferSyntax;
-      offset = metaView.getPosition();
+      offset += metaView.getPosition();
 
       // Determine endianness and VR type from transfer syntax
       if (transferSyntax === TRANSFER_SYNTAX_IMPLICIT_VR_LITTLE_ENDIAN) {
@@ -394,6 +580,7 @@ interface ParseContext {
   littleEndian: boolean;
   characterSet: string;
   transferSyntax?: string;
+  skipPixelData?: boolean;
 }
 
 /**
@@ -553,39 +740,61 @@ function parseElement(
     undefined;
 
   if (isPixelData) {
-    // Extract pixel data (can be large) - use current view position
-    const pixelDataResult = extractPixelData(view, length, context.transferSyntax);
-
-    if (pixelDataResult) {
-      // Store pixel data with metadata
-      value = {
-        pixelData: Array.from(pixelDataResult.pixelData),
-        isEncapsulated: pixelDataResult.isEncapsulated,
-        fragments: pixelDataResult.fragments,
-        transferSyntax: pixelDataResult.transferSyntax,
-      };
-
-      // View position is already advanced by extractPixelData
-    } else {
-      // Failed to extract - skip
-      if (length === 0xffffffff) {
-        // Skip encapsulated data - try to find delimiter
-        let skipped = 0;
-        while (view.getRemainingBytes() >= 8 && skipped < 1000000) {
-          const g = view.readUint16();
-          const e = view.readUint16();
-          if (g === 0xfffe && e === 0xe0dd) {
-            view.readUint32(); // Read delimiter length
-            break;
+    if (context.skipPixelData) {
+       // Skip Pixel Data loading
+       if (length === 0xffffffff) {
+          // Encapsulated - find delimiter
+          let skipped = 0;
+          while (view.getRemainingBytes() >= 8 && skipped < 100000000) { // Safety limit
+           const g = view.readUint16();
+           const e = view.readUint16();
+           if (g === 0xfffe && e === 0xe0dd) {
+             view.readUint32(); // Read delimiter length
+             break;
+           }
+           view.setPosition(view.getPosition() - 4 + 2); // Shift 2 bytes to scan
+           skipped += 2;
           }
-          view.setPosition(view.getPosition() - 4); // Back up
-          view.readBytes(Math.min(8, view.getRemainingBytes()));
-          skipped += 8;
+       } else {
+         view.readBytes(length);
+       }
+       // We still return an element, just without the heavy 'Value'
+       value = undefined; 
+    } else {
+        // Extract pixel data (can be large) - use current view position
+        const pixelDataResult = extractPixelData(view, length, context.transferSyntax);
+
+        if (pixelDataResult) {
+          // Store pixel data with metadata
+          value = {
+              pixelData: Array.from(pixelDataResult.pixelData),
+              isEncapsulated: pixelDataResult.isEncapsulated,
+              fragments: pixelDataResult.fragments,
+              transferSyntax: pixelDataResult.transferSyntax,
+          };
+
+          // View position is already advanced by extractPixelData
+        } else {
+          // Failed to extract - skip
+          if (length === 0xffffffff) {
+              // Skip encapsulated data - try to find delimiter
+              let skipped = 0;
+              while (view.getRemainingBytes() >= 8 && skipped < 1000000) {
+              const g = view.readUint16();
+              const e = view.readUint16();
+              if (g === 0xfffe && e === 0xe0dd) {
+                  view.readUint32(); // Read delimiter length
+                  break;
+              }
+              view.setPosition(view.getPosition() - 4); // Back up
+              view.readBytes(Math.min(8, view.getRemainingBytes()));
+              skipped += 8;
+              }
+          } else {
+              view.readBytes(length);
+          }
+          return null;
         }
-      } else {
-        view.readBytes(length);
-      }
-      return null;
     }
   } else if (length > 0 && view.getRemainingBytes() >= length) {
     // Regular element - apply size limit for non-pixel data

@@ -8,6 +8,7 @@ import type { DicomElement, SequenceItem } from './types';
 import { SafeDataView } from './SafeDataView';
 import { detectVR, requiresExplicitLength } from './vrDetection';
 import { parseValueByVR } from './valueParsers';
+import { createParseError } from './errors';
 
 /**
  * Parse a sequence item
@@ -16,12 +17,16 @@ function parseSequenceItem(
   view: SafeDataView,
   explicitVR: boolean,
   littleEndian: boolean,
-  characterSet: string
+  characterSet: string,
+  expected: boolean = true
 ): SequenceItem | null {
   const startPos = view.getPosition();
   
   // Read item tag (FFFE, E000)
   if (view.getRemainingBytes() < 8) {
+    if (expected) {
+       throw createParseError('Unexpected end of data while reading sequence item', undefined, startPos);
+    }
     return null;
   }
   
@@ -49,6 +54,9 @@ function parseSequenceItem(
   
   // Parse fixed-length item
   const itemEnd = view.getPosition() + itemLength;
+  if (itemEnd > view.byteLength) {
+     throw createParseError('Sequence item length out of bounds', 'xFFFEE000', view.getPosition());
+  }
   return parseItemElements(view, explicitVR, littleEndian, characterSet, itemEnd);
 }
 
@@ -84,7 +92,8 @@ function parseUndefinedLengthItem(
     // Parse element
     const element = parseElement(view, explicitVR, littleEndian, characterSet);
     if (!element) {
-      break;
+      // If we can't parse an element inside an undefined length item, and didn't find delimiter: error
+      throw createParseError('Unexpected end of data or invalid tag in undefined length item', undefined, view.getPosition());
     }
     
     // Store element

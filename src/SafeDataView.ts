@@ -22,6 +22,10 @@ export class SafeDataView {
     this.littleEndian = littleEndian;
   }
 
+  get byteLength(): number {
+    return this.view.byteLength;
+  }
+
   getPosition(): number {
     return this.offset;
   }

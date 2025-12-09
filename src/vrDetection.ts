@@ -12,96 +12,96 @@
 export const EXPLICIT_LENGTH_VR = new Set(['OB', 'OD', 'OF', 'OL', 'OW', 'SQ', 'UC', 'UN', 'UR', 'UT']);
 
 /**
- * Common VR patterns based on tag groups and elements
- * This is a simplified VR dictionary - full implementation would be more comprehensive
+ * Common VR patterns based on tag groups and elements (Combined as unique 32-bit integer)
+ * Key = (Group << 16) | Element
  */
-const VR_PATTERNS: Record<string, string> = {
+const VR_MAP = new Map<number, string>([
   // Patient Information (Group 0010)
-  '00100010': 'PN', // Patient's Name
-  '00100020': 'LO', // Patient ID
-  '00100021': 'LO', // Issuer of Patient ID
-  '00100030': 'DA', // Patient's Birth Date
-  '00100032': 'TM', // Patient's Birth Time
-  '00100040': 'CS', // Patient's Sex
-  '00100050': 'LO', // Patient's Insurance Plan Code Sequence
-  '00100101': 'AS', // Patient's Age
-  '00100102': 'DS', // Patient's Size
-  '00100103': 'DS', // Patient's Weight
+  [0x00100010, 'PN'], // Patient's Name
+  [0x00100020, 'LO'], // Patient ID
+  [0x00100021, 'LO'], // Issuer of Patient ID
+  [0x00100030, 'DA'], // Patient's Birth Date
+  [0x00100032, 'TM'], // Patient's Birth Time
+  [0x00100040, 'CS'], // Patient's Sex
+  [0x00100050, 'LO'], // Patient's Insurance Plan Code Sequence
+  [0x00100101, 'AS'], // Patient's Age
+  [0x00100102, 'DS'], // Patient's Size
+  [0x00100103, 'DS'], // Patient's Weight
   
   // Study Information (Group 0020)
-  '0020000D': 'UI', // Study Instance UID
-  '0020000E': 'UI', // Series Instance UID
-  '00200010': 'SH', // Study ID
-  '00200011': 'IS', // Series Number
-  '00200012': 'IS', // Acquisition Number
-  '00200013': 'IS', // Instance Number
-  '00200020': 'CS', // Patient Orientation
-  '00200032': 'DS', // Image Position Patient
-  '00200037': 'DS', // Image Orientation Patient
+  [0x0020000D, 'UI'], // Study Instance UID
+  [0x0020000E, 'UI'], // Series Instance UID
+  [0x00200010, 'SH'], // Study ID
+  [0x00200011, 'IS'], // Series Number
+  [0x00200012, 'IS'], // Acquisition Number
+  [0x00200013, 'IS'], // Instance Number
+  [0x00200020, 'CS'], // Patient Orientation
+  [0x00200032, 'DS'], // Image Position Patient
+  [0x00200037, 'DS'], // Image Orientation Patient
   
   // Image Information (Group 0028)
-  '00280002': 'US', // Samples per Pixel
-  '00280004': 'CS', // Photometric Interpretation
-  '00280010': 'US', // Rows
-  '00280011': 'US', // Columns
-  '00280030': 'DS', // Pixel Spacing
-  '00280031': 'DS', // Slice Thickness
-  '00280100': 'US', // Bits Allocated
-  '00280101': 'US', // Bits Stored
-  '00280102': 'US', // High Bit
-  '00280103': 'US', // Pixel Representation
-  '00280106': 'US', // Smallest Image Pixel Value
-  '00280107': 'US', // Largest Image Pixel Value
-  '00281050': 'DS', // Window Center
-  '00281051': 'DS', // Window Width
-  '00281052': 'DS', // Rescale Intercept
-  '00281053': 'DS', // Rescale Slope
+  [0x00280002, 'US'], // Samples per Pixel
+  [0x00280004, 'CS'], // Photometric Interpretation
+  [0x00280010, 'US'], // Rows
+  [0x00280011, 'US'], // Columns
+  [0x00280030, 'DS'], // Pixel Spacing
+  [0x00280031, 'DS'], // Slice Thickness
+  [0x00280100, 'US'], // Bits Allocated
+  [0x00280101, 'US'], // Bits Stored
+  [0x00280102, 'US'], // High Bit
+  [0x00280103, 'US'], // Pixel Representation
+  [0x00280106, 'US'], // Smallest Image Pixel Value
+  [0x00280107, 'US'], // Largest Image Pixel Value
+  [0x00281050, 'DS'], // Window Center
+  [0x00281051, 'DS'], // Window Width
+  [0x00281052, 'DS'], // Rescale Intercept
+  [0x00281053, 'DS'], // Rescale Slope
   
   // Identifying Information (Group 0008)
-  '00080005': 'CS', // Specific Character Set
-  '00080008': 'CS', // Image Type
-  '00080012': 'DA', // Instance Creation Date
-  '00080013': 'TM', // Instance Creation Time
-  '00080016': 'UI', // SOP Class UID
-  '00080018': 'UI', // SOP Instance UID
-  '00080020': 'DA', // Study Date
-  '00080030': 'TM', // Study Time
-  '00080050': 'SH', // Accession Number
-  '00080060': 'CS', // Modality
-  '00080070': 'LO', // Manufacturer
-  '00080080': 'LO', // Institution Name
-  '00080090': 'PN', // Referring Physician's Name
-  '00081030': 'LO', // Study Description
-  '0008103E': 'LO', // Series Description
-  '00081050': 'PN', // Performing Physician's Name
-  '00081070': 'PN', // Operators' Name
-  '00081080': 'LO', // Admitting Diagnoses Description
-  '00081090': 'LO', // Manufacturer's Model Name
-  '00081150': 'UI', // Referenced SOP Class UID
-  '00081155': 'UI', // Referenced SOP Instance UID
+  [0x00080005, 'CS'], // Specific Character Set
+  [0x00080008, 'CS'], // Image Type
+  [0x00080012, 'DA'], // Instance Creation Date
+  [0x00080013, 'TM'], // Instance Creation Time
+  [0x00080016, 'UI'], // SOP Class UID
+  [0x00080018, 'UI'], // SOP Instance UID
+  [0x00080020, 'DA'], // Study Date
+  [0x00080030, 'TM'], // Study Time
+  [0x00080050, 'SH'], // Accession Number
+  [0x00080060, 'CS'], // Modality
+  [0x00080070, 'LO'], // Manufacturer
+  [0x00080080, 'LO'], // Institution Name
+  [0x00080090, 'PN'], // Referring Physician's Name
+  [0x00081030, 'LO'], // Study Description
+  [0x0008103E, 'LO'], // Series Description
+  [0x00081050, 'PN'], // Performing Physician's Name
+  [0x00081070, 'PN'], // Operators' Name
+  [0x00081080, 'LO'], // Admitting Diagnoses Description
+  [0x00081090, 'LO'], // Manufacturer's Model Name
+  [0x00081150, 'UI'], // Referenced SOP Class UID
+  [0x00081155, 'UI'], // Referenced SOP Instance UID
   
   // Equipment Information (Group 0018)
-  '00180015': 'CS', // Body Part Examined
-  '00180020': 'CS', // Scanning Sequence
-  '00180021': 'CS', // Sequence Variant
-  '00180022': 'CS', // Scan Options
-  '00180050': 'DS', // Slice Thickness
-  '00180060': 'DS', // KVP
-  '00180081': 'DS', // Echo Time
-  '00180082': 'DS', // Inversion Time
-  '00180083': 'DS', // Number of Averages
-  '00180088': 'DS', // Spacing Between Slices
-  '00180090': 'DS', // Data Collection Diameter
-  '00181000': 'LO', // Device Serial Number
-  '00181020': 'LO', // Software Version
-  '00181030': 'LO', // Protocol Name
-  '00181050': 'DS', // Slice Location
-  '00181200': 'DA', // Date of Last Calibration
-  '00181201': 'TM', // Time of Last Calibration
+  [0x00180015, 'CS'], // Body Part Examined
+  [0x00180020, 'CS'], // Scanning Sequence
+  [0x00180021, 'CS'], // Sequence Variant
+  [0x00180022, 'CS'], // Scan Options
+  [0x00180050, 'DS'], // Slice Thickness
+  [0x00180060, 'DS'], // KVP
+  [0x00180081, 'DS'], // Echo Time
+  [0x00180082, 'DS'], // Inversion Time
+  [0x00180083, 'DS'], // Number of Averages
+  [0x00180088, 'DS'], // Spacing Between Slices
+  [0x00180090, 'DS'], // Data Collection Diameter
+  [0x00181000, 'LO'], // Device Serial Number
+  [0x00181020, 'LO'], // Software Version
+  [0x00181030, 'LO'], // Protocol Name
+  [0x00181050, 'DS'], // Slice Location
+  [0x00181200, 'DA'], // Date of Last Calibration
+  [0x00181201, 'TM'], // Time of Last Calibration
   
   // Pixel Data
-  '7FE00010': 'OB', // Pixel Data (usually OB or OW)
-};
+  [0x7FE00010, 'OB'], // Pixel Data (usually OB or OW)
+]);
 
 /**
  * Detect VR for a tag in implicit VR transfer syntax
@@ -110,11 +110,14 @@ const VR_PATTERNS: Record<string, string> = {
  * @returns Detected VR or 'UN' if unknown
  */
 export function detectVR(group: number, element: number): string {
-  const tagHex = `${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
+  // Optimization: use integer key for map lookup (Group << 16 | Element)
+  // This avoids string allocation `${group}...`
+  const key = (group << 16) | element;
   
   // Check explicit patterns first
-  if (VR_PATTERNS[tagHex]) {
-    return VR_PATTERNS[tagHex];
+  const explicitVR = VR_MAP.get(key);
+  if (explicitVR) {
+    return explicitVR;
   }
   
   // Check common patterns based on group
