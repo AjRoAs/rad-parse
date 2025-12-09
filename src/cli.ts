@@ -1,8 +1,17 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse, write, anonymize } from './index';
+import { parse, write, anonymize, registry, RleDecoder, BrowserImageDecoder, WebGpuDecoder, WebGlDecoder, Jpeg2000Decoder, JpegLsDecoder } from './index';
 import { formatTagWithComma } from './utils/tagUtils';
+
+// Register Plugins
+registry.register(new RleDecoder());
+registry.register(new BrowserImageDecoder());
+registry.register(new WebGpuDecoder());
+registry.register(new WebGlDecoder());
+// Register Adapters (inactive by default without external decoder)
+registry.register(new Jpeg2000Decoder());
+registry.register(new JpegLsDecoder());
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -57,7 +66,7 @@ rad-parser CLI v2.0.0
 
 Commands:
   dump <file>                  Parse and print DICOM tags from a file.
-  anonymize <input> [output]   Anonymize a DICOM file.
+  anonymize <input> [output]   Anonymize a DICOM file using Basic Application Level Confidentiality Profile.
                                If output is omitted, defaults to <input>_anon.dcm.
   convert <input> <output>     Convert/Rewrite a DICOM file (e.g. to Explicit VR Little Endian).
     `);

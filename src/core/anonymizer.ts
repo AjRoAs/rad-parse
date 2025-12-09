@@ -1,21 +1,23 @@
 /**
- * DICOM Anonymizer
+ * DICOM Anonymizer (Basic Attribute Confidentiality Profile)
  *
- * Provides functionality to anonymize DICOM datasets by replacing or removing sensitive tags.
+ * Provides functionality to anonymize DICOM datasets by replacing or removing sensitive tags
+ * according to DICOM PS3.15 Annex E (Basic Attribute Confidentiality Profile).
  */
 
 import { DicomDataSet, DicomElement } from './types';
+import { BASIC_PROFILE_RULES, AnonymizationAction } from './anonymizationRules';
 
 export interface AnonymizationOptions {
   /**
    * Custom replacement values for tags.
-   * Key: Tag format 'xGGGGEEEE' or 'GGGG,EEEE'.
+   * Key: Tag format 'xGGGGEEEE'.
    * Value: New value (string) or null to remove.
    */
   replacements?: Record<string, string | null>;
   
   /**
-   * Prefix for PatientID if not specified in replacements.
+   * Prefix for dummy values (PatientID, PatientName, etc.)
    * Default: 'ANON'
    */
   patientIdPrefix?: string;
@@ -24,15 +26,15 @@ export interface AnonymizationOptions {
    * If true, keep private tags. Default: false (remove private tags).
    */
   keepPrivateTags?: boolean;
+
+  /**
+   * UID Map to maintain consistency across a dataset series.
+   * If provided, new UIDs will be stored/retrieved here.
+   */
+   uidMap?: Record<string, string>;
 }
 
-const DEFAULT_REPLACEMENTS: Record<string, string | null> = {
-  'x00100010': 'ANONYMIZED',       // PatientName
-  'x00100030': '',                 // PatientBirthDate (empty)
-  'x00100040': '',                 // PatientSex (empty)
-  'x00101040': '',                 // PatientAddress
-  // Add more default rules conforming to DICOM Basic Anonymization Profile if needed
-};
+const DEFAULT_PREFIX = 'ANON';
 
 /**
  * Anonymize a DICOM dataset.
@@ -47,67 +49,111 @@ export function anonymize(dataset: DicomDataSet, options: AnonymizationOptions =
   // Create shallow copy of the dataset structure
   const newDict: Record<string, DicomElement> = { ...dataset.dict };
   
-  const replacements = { ...DEFAULT_REPLACEMENTS, ...(options.replacements || {}) };
-  const prefix = options.patientIdPrefix || 'ANON';
-  
-  // Generate a random ID if not provided? Or deterministic? 
-  // For now, if PatientID (0010,0020) is not in replacements, we generate one.
-  if (replacements['x00100020'] === undefined && !replacements['0010,0020']) {
-      // Simple random ID
-      replacements['x00100020'] = `${prefix}-${Math.floor(Math.random() * 100000)}`;
+  const customReplacements = options.replacements || {};
+  const prefix = options.patientIdPrefix || DEFAULT_PREFIX;
+  const uidMap = options.uidMap || {};
+
+  // 1. Process Basic Profile Rules
+  Object.keys(BASIC_PROFILE_RULES).forEach(tag => {
+      const rule = BASIC_PROFILE_RULES[tag];
+      const element = newDict[tag];
+      
+      // Custom replacement overrides profile rules
+      if (customReplacements[tag] !== undefined) {
+          return; 
+      }
+
+      // Even if element is not present, some rules might require creation? 
+      // Typically we only scrub existing tags.
+      if (element) {
+          applyRule(newDict, tag, rule.action, prefix, uidMap);
+      }
+  });
+
+  // 2. Process Custom Replacements
+  for (const tag of Object.keys(customReplacements)) {
+      const replacement = customReplacements[tag];
+      if (replacement === null) {
+          delete newDict[tag];
+      } else {
+           const original = newDict[tag] || { vr: 'UN', Value: '' };
+           newDict[tag] = {
+              ...original,
+              Value: replacement === '' ? '' : replacement, // Empty string for Z
+              value: replacement === '' ? '' : replacement,
+              length: replacement.length
+           };
+      }
   }
 
-  // Iterate and Apply transformations
-  for (const tag of Object.keys(newDict)) {
-      // 1. Check for specific replacement
-      let replacementValue = replacements[tag];
-      // Check comma format if x-format not found
-      if (replacementValue === undefined && tag.startsWith('x')) {
-          // normalization logic... simplified check
-      }
-      
-      if (replacementValue !== undefined) {
-          if (replacementValue === null) {
-              delete newDict[tag];
-          } else {
-              // Create new element with new value
-              const original = newDict[tag];
-              newDict[tag] = {
-                  ...original,
-                  Value: replacementValue,
-                  value: replacementValue,
-                  length: replacementValue.length // Approximation, writer will fix padding
-              };
-          }
-          continue;
-      }
-      
-      // 2. Private Tags Removal
-      // Private tags have odd group numbers
-      if (!options.keepPrivateTags) {
-          const group = parseInt(tag.substring(1, 5), 16);
-          if (group % 2 !== 0) {
-              delete newDict[tag];
-              continue;
+  // 3. Private Tags Removal
+  if (!options.keepPrivateTags) {
+      for (const tag of Object.keys(newDict)) {
+          // Check if it's a private tag (odd group number)
+          // Private Creator tags (GGGG,00xx) usually also removed unless safe.
+          // Format usually xGGGGEEEE.
+          if (tag.startsWith('x') && tag.length === 9) {
+              const group = parseInt(tag.substring(1, 5), 16);
+              if (!isNaN(group) && group % 2 !== 0) {
+                  delete newDict[tag];
+              }
           }
       }
   }
   
   return {
     dict: newDict,
-    elements: newDict, // Alias
+    elements: newDict,
     string: (t) => { const e = newDict[t]; return e ? String(e.Value) : undefined; },
-    uint16: dataset.uint16, // These accessors might be broken if they rely on closure state!
-    int16: dataset.int16,   // We need to implement them properly or rely on `dataset` prototype?
-                            // The original implementation returns an object with methods.
-                            // We should probably reconstruct the object similarly to `createDataSet`.
+    uint16: dataset.uint16,
+    int16: dataset.int16,
     floatString: dataset.floatString
   };
 }
 
-// Helper to wrap dict into a dataset object (similar to createDataSet in parser)
-// But to avoid circular dependency on parser, we define a simple wrapper here or export `createDataSet` from core/types?
-// `types.ts` only has interfaces.
-// `parser.ts` has `return { dict ... string: ... }`.
-// I should duplicate the accessor logic or move `createDataSet` to a utility.
-// For now, I'll return a simple object matching the interface, but implementing methods on the new dict.
+function applyRule(
+    dict: Record<string, DicomElement>, 
+    tag: string, 
+    action: AnonymizationAction, 
+    prefix: string,
+    uidMap: Record<string, string>
+) {
+    switch (action) {
+        case 'X': // Remove
+            delete dict[tag];
+            break;
+            
+        case 'Z': // Zero Length (Empty)
+             if (dict[tag]) {
+                 dict[tag] = { ...dict[tag], Value: '', value: '', length: 0 };
+             }
+             break;
+             
+        case 'D': // Dummy Value
+             if (dict[tag]) {
+                 dict[tag] = { ...dict[tag], Value: prefix, value: prefix, length: prefix.length };
+             }
+             break;
+             
+        case 'U': // Replace UID
+             if (dict[tag]) {
+                 const originalUID = String(dict[tag].Value);
+                 // Normalize UID (strip padding)
+                 const cleanUID = originalUID.replace(/\0/g, '');
+                 
+                 let newUID = uidMap[cleanUID];
+                 if (!newUID) {
+                     // Generate new UID
+                     // Simple random UID: 2.25.<random>
+                     // Real implementation should use UUID
+                     newUID = '2.25.' + Math.floor(Math.random() * 1e14) + '.' + Date.now();
+                     uidMap[cleanUID] = newUID;
+                 }
+                 dict[tag] = { ...dict[tag], Value: newUID, value: newUID, length: newUID.length };
+             }
+             break;
+             
+        case 'K': // Keep
+             break;
+    }
+}

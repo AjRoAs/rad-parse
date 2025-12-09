@@ -22,21 +22,40 @@ describe('Anonymizer', () => {
         } as any;
     };
 
-    it('should anonymize sensitive tags by default', () => {
-        const dataset = createDataset();
+
+    it('should apply Basic Profile rules (AccessionNumber -> Z, InstitutionName -> X)', () => {
+         const dataset = {
+            dict: {
+                'x00080050': { vr: 'SH', Value: 'ACC123' }, // AccessionNumber (Z - Empty)
+                'x00080080': { vr: 'LO', Value: 'Hospital Name' }, // InstitutionName (X - Remove)
+                'x00100010': { vr: 'PN', Value: 'DOE^JOHN' }, // PatientName (D - Dummy)
+                'x0020000D': { vr: 'UI', Value: '1.2.3.4' } // StudyInstanceUID (U - Replace)
+            },
+            elements: {},
+            string: () => undefined,
+            uint16: () => undefined,
+            int16: () => undefined,
+            floatString: () => undefined,
+        } as any;
+        
         const anon = anonymize(dataset);
         
-        expect(anon.dict['x00100010'].Value).toBe('ANONYMIZED'); // PatientName
-        expect(anon.dict['x00100030'].Value).toBe('');           // PatientBirthDate
-        expect(anon.dict['x00100040'].Value).toBe('');           // PatientSex
+        expect(anon.dict['x00080050'].Value).toBe(''); // Z
+        expect(anon.dict['x00080080']).toBeUndefined(); // X
+        expect(anon.dict['x00100010'].Value).toBe('ANON'); // D (Default prefix)
+        expect(anon.dict['x0020000D'].Value).not.toBe('1.2.3.4'); // U (Changed)
+        expect(anon.dict['x0020000D'].Value).toMatch(/^2\.25\./); // Check new UID root
     });
 
-    it('should replace PatientID if not provided', () => {
-        const dataset = createDataset();
-        const anon = anonymize(dataset);
+    it('should maintain UID consistency with uidMap', () => {
+        const dataset1 = { dict: { 'x0020000D': { vr: 'UI', Value: '1.2.3.4' } }, elements: {}, string: ()=>{} } as any;
+        const dataset2 = { dict: { 'x0020000D': { vr: 'UI', Value: '1.2.3.4' } }, elements: {}, string: ()=>{} } as any;
         
-        // Should generate fake ID
-        expect(anon.dict['x00100020'].Value).toMatch(/^ANON-\d+/); // Default prefix ANON-
+        const uidMap = {};
+        const anon1 = anonymize(dataset1, { uidMap });
+        const anon2 = anonymize(dataset2, { uidMap });
+        
+        expect(anon1.dict['x0020000D'].Value).toBe(anon2.dict['x0020000D'].Value);
     });
 
     it('should use custom replacements', () => {
