@@ -13,16 +13,20 @@ export { decompressJPEG, decompressPixelData, supportsImageDecoder } from './com
 export { dicomDictionary, getTagName, isPrivateTag } from './dictionary';
 export { DicomParseError, createParseError } from './errors';
 /** Core parser entry points */
+
 export {
   canParse,
   parseWithMetadata,
   fullParse,
   mediumParse,
   shallowParse,
-  parseWithRadParser, // Keep for backward compatibility
+  parse, // Unified API
+
   type ParseResult,
   type ParseOptions,
+  type UnifiedParseOptions,
   extractPixelData,
+
 } from './parser';
 export { extractTransferSyntax, TRANSFER_SYNTAX } from './extractTransferSyntax';
 /** Pixel data utilities */

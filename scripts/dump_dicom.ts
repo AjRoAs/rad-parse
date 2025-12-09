@@ -1,5 +1,5 @@
 
-import { parseWithRadParser } from '../src/index';
+import { parse } from '../src/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -27,23 +27,6 @@ async function main() {
            filePath = path.join(TEST_DATA_DIR, files[0]);
          }
       }
-    }
-  }
-
-  if (!filePath || !fs.existsSync(filePath)) {
-    console.error(`File not found: ${filePath}`);
-    process.exit(1);
-  }
-
-  console.log(`Parsing ${filePath}...`);
-  const buffer = fs.readFileSync(filePath);
-  const uint8Array = new Uint8Array(buffer);
-
-  try {
-    const dataset = parseWithRadParser(uint8Array);
-    
-    // Custom replacer to handle BigInt and truncate binary data
-    const replacer = (key: string, value: any) => {
       if (typeof value === 'bigint') {
         return value.toString();
       }

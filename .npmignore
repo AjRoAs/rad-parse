@@ -33,6 +33,6 @@ docs/
 tests/
 results/
 test_data/
-
+scripts/results/
 # Environment
 .env

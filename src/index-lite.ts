@@ -13,7 +13,7 @@ export {
   fullParse,
   mediumParse,
   shallowParse,
-  parseWithRadParser, // Keep for backward compatibility
+
   type ParseResult,
   type ParseOptions,
   extractPixelData

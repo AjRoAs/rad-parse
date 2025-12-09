@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { fullParse, shallowParse, mediumParse } from './src/index.js';
+import { fullParse, shallowParse, mediumParse } from '../src/index.js';
 import dcmjs from 'dcmjs';
 import dicomParser from 'dicom-parser';
 import efferentDicom from 'efferent-dicom';
@@ -308,7 +308,7 @@ function printResults(stats: ParserStats[]): void {
  */
 async function runBenchmark(): Promise<void> {
   // Find test_data directory (could be at project root or relative to this file)
-  const projectRoot = resolve(__dirname, './');
+  const projectRoot = resolve(__dirname, '../');
   // Try multiple possible paths
   const possiblePaths = [
     join(projectRoot, 'test_data/patient/DICOM'),
@@ -333,7 +333,7 @@ async function runBenchmark(): Promise<void> {
     process.exit(1);
   }
 
-  const parsers = ['rad-parser', 'rad-parser-shallow', 'rad-parser-medium'];
+  const parsers = ['rad-parser', 'rad-parser-shallow', 'rad-parser-medium', 'dcmjs', 'dicom-parser', 'efferent-dicom'];
   const maxFiles = 50; // Limit to first 50 files for faster benchmarking
 
   console.log('Loading DICOM files...');

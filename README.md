@@ -111,13 +111,13 @@ console.log(element.Length); // Length in bytes (uppercase) - also available
 
 // Pixel Data Format
 // Uncompressed pixel data is returned as direct Uint8Array:
-if (element.vr === 'OW' || element.vr === 'OB') {
-  const pixelData = element.Value; // Uint8Array for uncompressed
+if (element.vr === "OW" || element.vr === "OB") {
+    const pixelData = element.Value; // Uint8Array for uncompressed
 }
 
 // Encapsulated pixel data is returned as Array<Uint8Array>:
 if (Array.isArray(element.Value) && element.Value[0] instanceof Uint8Array) {
-  const fragments = element.Value; // Array<Uint8Array> for encapsulated
+    const fragments = element.Value; // Array<Uint8Array> for encapsulated
 }
 ```
 
@@ -370,39 +370,37 @@ Run `npm run benchmark` to compare rad-parser performance across different parsi
 
 Benchmark run on 50 DICOM files (average file size: 548 KB):
 
-````text
 ================================================================================
 DICOM Parser Benchmark Results
 ================================================================================
 
-Summary:
---------------------------------------------------------------------------------
-Parser               Files    Success    Avg Time     Min Time     Max Time     Avg Elements   
---------------------------------------------------------------------------------
-rad-parser-shallow   50       50/50      1.05 ms      340.23 μs    8.09 ms      94             
-rad-parser-medium    50       50/50      4.94 ms      1.56 ms      7.50 ms      276            
-rad-parser           50       50/50      6.60 ms      1.95 ms      13.15 ms     276            
+## Summary:
 
-Performance Comparison (relative to fastest):
---------------------------------------------------------------------------------
-rad-parser-shallow   1.00x ██████████ 1.05 ms
-rad-parser-medium    4.69x ███████████████████████████████████████████████ 4.94 ms
-rad-parser           6.28x ██████████████████████████████████████████████████ 6.60 ms
+## Parser Files Success Avg Time Min Time Max Time Avg Elements
+
+rad-parser-shallow 50 50/50 0.70 ms 0.53 ms 1.37 ms 94  
+rad-parser-medium 50 50/50 2.11 ms 1.72 ms 4.81 ms 276  
+rad-parser 50 50/50 3.20 ms 1.99 ms 8.77 ms 276
+
+## Performance Comparison (relative to fastest):
+
+rad-parser-shallow 1.00x ██████████ 0.70 ms
+rad-parser-medium 3.01x ██████████████████████████████ 2.11 ms
+rad-parser 4.57x ██████████████████████████████████████████████ 3.20 ms
 
 ================================================================================
 
-### Performance Notes
-
--   **rad-parser-shallow**: Ultra-fast scanning mode (~1.05 ms average) - perfect for indexing or quick tag lookups without parsing values. Detects 94 elements per file.
--   **rad-parser-medium**: Memory-efficient mode (~4.94 ms average) - parses all metadata but skips pixel data, detecting 276 elements vs 94 in shallow mode. Ideal for metadata extraction without pixel data overhead.
--   **rad-parser**: Full deep parsing mode (~6.60 ms average) - complete recursive parsing of sequences with structural validation, detecting 276 elements. Ensures complete structural integrity.
+-   **rad-parser-shallow**: Ultra-fast scanning mode (~0.88 ms average) - perfect for indexing or quick tag lookups without parsing values. Detects 94 elements per file.
+-   **rad-parser-medium**: Memory-efficient mode (~2.31 ms average) - parses all metadata but skips pixel data, detecting 276 elements vs 94 in shallow mode. Ideal for metadata extraction without pixel data overhead.
+-   **rad-parser**: Full deep parsing mode (~2.95 ms average) - complete recursive parsing of sequences with structural validation, detecting 276 elements. Ensures complete structural integrity.
 
 **Key Insights:**
-- Shallow parsing is ~6x faster than full parsing, ideal for quick metadata extraction
-- Medium parsing provides a good balance, detecting all metadata elements while avoiding pixel data memory overhead
-- Full parsing performs deep recursive validation, ensuring complete structural integrity
-- All modes successfully parse 100% of test files with zero errors
-- Average file size: 548 KB (26.76 MB total across 50 files)
+
+-   Shallow parsing is ~6x faster than full parsing, ideal for quick metadata extraction
+-   Medium parsing provides a good balance, detecting all metadata elements while avoiding pixel data memory overhead
+-   Full parsing performs deep recursive validation, ensuring complete structural integrity
+-   All modes successfully parse 100% of test files with zero errors
+-   Average file size: 548 KB (26.76 MB total across 50 files)
 
 ## API Documentation
 
@@ -413,38 +411,13 @@ Every public export is documented in [`docs/api.md`](docs/api.md), which enumera
 Extended documentation lives under `docs/` (see `docs/api.md`) and is mirrored in the GitHub wiki. When you update the README or introduce new modules, be sure to:
 
 1. Update `docs/api.md` with any new exports so the reference stays fresh.
-2. Synchronize narrative content with the GitHub wiki (`https://github.com/AjRoAs/rad-parse/wiki`) by copying the new sections or linking directly to the `docs/` files.
-3. Use the wiki for ongoing topics such as release checklists, contribution guidance, and troubleshooting notes that should be easy for contributors to browse.
+   **Parameters:**
 
-## API Reference
-
-### `parseWithRadParser(byteArray: Uint8Array): DicomDataSet`
-
-Parses a DICOM file and returns a dataset compatible with the SmallVis parser system.
-
-**Parameters:**
-
-- `byteArray`: The DICOM file as a `Uint8Array`
+-   `byteArray`: The DICOM file as a `Uint8Array`
 
 **Returns:**
 
-- `DicomDataSet`: A dataset object with access methods and dictionaries
-
-**Throws:**
-
-- `Error`: If the file format is invalid or parsing fails
-
-### `parseWithMetadata(byteArray: Uint8Array): ParseResult`
-
-Parses a DICOM file and returns dataset with metadata (transfer syntax, character set).
-
-**Parameters:**
-
-- `byteArray`: The DICOM file as a `Uint8Array`
-
-**Returns:**
-
-- `ParseResult`: Object containing `dataset`, `transferSyntax`, and `characterSet`
+-   `ParseResult`: Object containing `dataset`, `transferSyntax`, and `characterSet`
 
 ### `extractTransferSyntax(byteArray: Uint8Array): string | undefined`
 
@@ -452,20 +425,20 @@ Quickly extracts transfer syntax UID from a DICOM file without full parsing.
 
 **Parameters:**
 
-- `byteArray`: The DICOM file as a `Uint8Array`
+-   `byteArray`: The DICOM file as a `Uint8Array`
 
 **Returns:**
 
-- `string | undefined`: Transfer syntax UID or undefined if not found
+-   `string | undefined`: Transfer syntax UID or undefined if not found
 
 **Example:**
 
 ```typescript
 const transferSyntax = extractTransferSyntax(dicomBytes);
-if (transferSyntax === '1.2.840.10008.1.2.5') {
-  console.log('RLE compressed');
+if (transferSyntax === "1.2.840.10008.1.2.5") {
+    console.log("RLE compressed");
 }
-````
+```
 
 ### `canParse(byteArray: Uint8Array): boolean`
 
@@ -483,7 +456,7 @@ Checks if a byte array appears to be a valid DICOM file.
 
 ```typescript
 if (canParse(fileBytes)) {
-    const dataset = parseWithRadParser(fileBytes);
+    const dataset = parse(fileBytes);
 }
 ```
 
@@ -509,7 +482,10 @@ interface DicomDataSet {
 ### Reading Patient Information
 
 ```typescript
-const dataset = parseWithRadParser(dicomBytes);
+import { parse } from "rad-parser";
+
+const dataset = parse(dicomBytes);
+// or with options: parse(dicomBytes, { type: 'full' });
 
 const patientInfo = {
     name: dataset.string("x00100010"),
@@ -559,10 +535,10 @@ All elements export both uppercase and lowercase property keys for maximum compa
 const element = dataset.dict["x00100010"];
 
 // All of these work:
-element.vr === element.VR;        // true
-element.value === element.Value;  // true
+element.vr === element.VR; // true
+element.value === element.Value; // true
 element.length === element.Length; // true
-element.items === element.Items;  // true (for sequences)
+element.items === element.Items; // true (for sequences)
 ```
 
 ### Multiple Tag Format Support
@@ -571,9 +547,9 @@ Elements are stored under all common tag formats for seamless access:
 
 ```typescript
 // All of these access the same element:
-dataset.string("x00100010");  // x-prefixed (recommended)
-dataset.string("0010,0010");  // comma-separated
-dataset.string("00100010");   // plain format
+dataset.string("x00100010"); // x-prefixed (recommended)
+dataset.string("0010,0010"); // comma-separated
+dataset.string("00100010"); // plain format
 
 // Works with both dict and elements:
 dataset.dict["x00100010"] === dataset.dict["0010,0010"]; // true
@@ -587,18 +563,35 @@ Pixel data follows standard DICOM parser conventions:
 ```typescript
 const pixelElement = dataset.dict["x7fe00010"];
 
-if (pixelElement.vr === 'OW' || pixelElement.vr === 'OB') {
-  // Uncompressed: Direct Uint8Array
-  if (pixelElement.Value instanceof Uint8Array) {
-    const pixelData = pixelElement.Value; // Uint8Array
-  }
-  
-  // Encapsulated: Array<Uint8Array> (fragments)
-  if (Array.isArray(pixelElement.Value) && pixelElement.Value[0] instanceof Uint8Array) {
-    const fragments = pixelElement.Value; // Array<Uint8Array>
-    // Each fragment is a Uint8Array
-  }
+if (pixelElement.vr === "OW" || pixelElement.vr === "OB") {
+    // Uncompressed: Direct Uint8Array
+    if (pixelElement.Value instanceof Uint8Array) {
+        const pixelData = pixelElement.Value; // Uint8Array
+    }
+
+    // Encapsulated: Array<Uint8Array> (fragments)
+    if (
+        Array.isArray(pixelElement.Value) &&
+        pixelElement.Value[0] instanceof Uint8Array
+    ) {
+        const fragments = pixelElement.Value; // Array<Uint8Array>
+        // Each fragment is a Uint8Array
+    }
 }
+```
+
+### Filtering Elements (New in v1.2.0)
+
+You can filter which tags to parse using the `tags` option with the unified `parse()` function:
+
+```typescript
+import { parse } from "rad-parser";
+
+// Filter tags using any parse type (shallow, full, lazy, light)
+const result = parse(byteArray, {
+    type: "shallow",
+    tags: ["x00100010", "x0020000D"], // Only PatientName and StudyInstanceUID
+});
 ```
 
 These improvements ensure seamless integration with existing DICOM processing codebases.
@@ -608,10 +601,10 @@ These improvements ensure seamless integration with existing DICOM processing co
 RAD-Parser is integrated into SmallVis's parser system:
 
 ```typescript
-import { parseDicom } from "@/core/parsers";
+import { parse } from "rad-parser";
 
 // Use rad-parser specifically
-const dataset = await parseDicom(byteArray, "rad-parser");
+const dataset = parse(byteArray);
 
 // Or let the system choose (rad-parser is available as an option)
 ```
@@ -647,4 +640,3 @@ RAD-Parser is designed to be self-contained. When contributing:
     -   Transfer syntax detection
     -   Multiple tag format support
     -   Safety features
-

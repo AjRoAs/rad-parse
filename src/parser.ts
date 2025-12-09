@@ -114,6 +114,7 @@ export function canParse(byteArray: Uint8Array): boolean {
 
 /**
  * Parse DICOM file using rad-parser
+ * @deprecated Use `parse(byteArray, { type: 'full' })` instead.
  *
  * @param byteArray - The DICOM file as a Uint8Array
  * @returns A DicomDataSet compatible with the SmallVis parser system
@@ -141,144 +142,14 @@ export function fullParse(byteArray: Uint8Array): DicomDataSet {
 /**
  * @deprecated Use fullParse instead
  */
-export const parseWithRadParser = fullParse;
 
-/**
- * Parse DICOM file using shallow parsing (tags only, no values)
- * Optimized for speed. Similar to dicom-parser's default behavior.
- *
- * @param byteArray - The DICOM file as a Uint8Array
- * @returns A ShallowDicomDataSet map
- */
-export function shallowParse(byteArray: Uint8Array): ShallowDicomDataSet {
-  // Ensure ArrayBuffer and SafeDataView
-  let buffer: ArrayBuffer;
-  let byteOffset = 0;
-  if (byteArray.buffer instanceof ArrayBuffer) {
-    buffer = byteArray.buffer;
-    byteOffset = byteArray.byteOffset;
-  } else {
-    buffer = new ArrayBuffer(byteArray.byteLength);
-    const newView = new Uint8Array(buffer);
-    newView.set(byteArray);
-  }
 
-  const view = new SafeDataView(buffer, byteOffset, byteArray.byteLength);
-  
-  // Detect format
-  let detection: FormatDetection;
-  try {
-    detection = detectDicomFormat(view, buffer);
-  } catch {
-    // Fallback defaults if detection fails
-    detection = {
-      offset: 0,
-      isDicomPart10: false,
-      transferSyntax: TRANSFER_SYNTAX_IMPLICIT_VR_LITTLE_ENDIAN,
-      explicitVR: false,
-      littleEndian: true,
-      characterSet: 'ISO_IR 192'
-    };
-  }
 
-  view.setEndianness(detection.littleEndian);
-  view.setPosition(detection.offset);
-
-  const result: ShallowDicomDataSet = {};
-  const maxIterations = 100000; // Safety limit
-  let iterations = 0;
-  
-  const explicitVR = detection.explicitVR;
-
-  while (view.getRemainingBytes() >= 8 && iterations < maxIterations) {
-    iterations++;
-
-    // Save start position for data offset calculation
-    const elementStart = view.getPosition();
-    
-    // Read tag
-    const group = view.readUint16();
-    const element = view.readUint16();
-    
-    // Check for sequence/item delimiters
-    if (group === 0xfffe) {
-      if (element === 0xe0dd || element === 0xe00d || element === 0xe000) {
-        view.readUint32(); // Skip length
-        continue;
-      }
-    }
-
-    // Read VR and Length
-    let vr = 'UN';
-    let length: number;
-    let headerLength = 0;
-
-    if (explicitVR) {
-      const vrBytes = view.readBytes(2);
-      vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
-      
-      if (requiresExplicitLength(vr)) {
-        view.readUint16(); // Skip reserved
-        length = view.readUint32();
-        headerLength = 12; // 2+2+2+2+4
-      } else {
-        length = view.readUint16();
-        headerLength = 8; // 2+2+2+2
-      }
-    } else {
-      // Implicit VR
-      length = view.readUint32();
-      headerLength = 8; // 2+2+4
-      
-      // Use detectVR for better usability even in shallow parse
-      vr = detectVR(group, element) || 'UN';
-    }
-
-    const dataOffset = elementStart + headerLength;
-    const tagKey = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
-
-    result[tagKey] = {
-      tag: tagKey,
-      vr,
-      length,
-      dataOffset
-    };
-
-    // Advance past value
-    if (length === 0xffffffff) {
-      // Undefined length - tricky for shallow parse without full sequence scanning.
-      // We will attempt to skip until delimiter (if it's a Sequence or Pixel Data)
-      if (vr === 'SQ' || (group === 0x7fe0 && element === 0x0010)) {
-         // Skip until Sequence Delimiter Item (FFFE,E0DD)
-         let skipped = 0;
-         while (view.getRemainingBytes() >= 8 && skipped < 50000000) { // Safety break
-           const g = view.readUint16();
-           const e = view.readUint16();
-           if (g === 0xfffe && e === 0xe0dd) {
-             view.readUint32(); // Skip length (0)
-             break;
-           }
-           // Optimized scan:
-           view.setPosition(view.getPosition() - 4 + 2); // Advance 2 bytes
-           skipped += 2;
-         }
-      } 
-    } else {
-      // Skip defined length
-      if (view.getRemainingBytes() >= length) {
-        view.setPosition(view.getPosition() + length);
-      } else {
-        break; // EOF
-      }
-    }
-  }
-
-  return result;
-}
 
 /**
  * Parse DICOM file but skip loading Pixel Data value
  * Useful for reading metadata without memory overhead of image.
+ * @deprecated Use `parse(byteArray, { type: 'light' })` instead.
  *
  * @param byteArray - The DICOM file as a Uint8Array
  * @returns A DicomDataSet
@@ -299,153 +170,19 @@ export function mediumParse(byteArray: Uint8Array): DicomDataSet {
   }
 }
 
+
+
+
 /**
  * Options for parsing
  */
 export interface ParseOptions {
   skipPixelData?: boolean;
-}
-
-/**
- * Extract pixel data from DICOM file
- * Scans for Pixel Data element (7FE0,0010) and returns it.
- *
- * @param byteArray - The DICOM file as a Uint8Array
- * @returns PixelDataInfo or null if not found
- */
-export function extractPixelData(byteArray: Uint8Array): PixelDataInfo | null {
-  // Ensure ArrayBuffer and SafeDataView
-  let buffer: ArrayBuffer;
-  let byteOffset = 0;
-  if (byteArray.buffer instanceof ArrayBuffer) {
-    buffer = byteArray.buffer;
-    byteOffset = byteArray.byteOffset;
-  } else {
-    buffer = new ArrayBuffer(byteArray.byteLength);
-    const newView = new Uint8Array(buffer);
-    newView.set(byteArray);
-  }
-
-  const view = new SafeDataView(buffer, byteOffset, byteArray.byteLength);
-
-  // Detect format
-  let detection: FormatDetection;
-  try {
-    detection = detectDicomFormat(view, buffer);
-  } catch {
-     return null;
-  }
-
-  view.setEndianness(detection.littleEndian);
-  view.setPosition(detection.offset);
-
-  const expectedTransferSyntax = detection.transferSyntax;
-  const explicitVR = detection.explicitVR;
-  const maxIterations = 100000;
-  let iterations = 0;
-
-  while (view.getRemainingBytes() >= 8 && iterations < maxIterations) {
-    iterations++;
-    
-    // Read tag
-    const group = view.readUint16();
-    const element = view.readUint16();
-
-     // Check for sequence/item delimiters
-    if (group === 0xfffe) {
-      if (element === 0xe0dd || element === 0xe00d || element === 0xe000) {
-        view.readUint32(); // Skip length
-        continue;
-      }
-    }
-
-    if (group === 0x7fe0 && element === 0x0010) {
-      // Found Pixel Data!
-      // Read VR and Length
-      let vr = 'OW'; // Default for implicit
-      let length: number;
-
-      if (explicitVR) {
-        const vrBytes = view.readBytes(2);
-        vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
-        if (requiresExplicitLength(vr)) {
-           view.readUint16();
-           length = view.readUint32();
-        } else {
-           length = view.readUint16();
-        }
-      } else {
-         length = view.readUint32();
-      }
-
-      // Extract
-      const result = extractPixelDataFromView(view, length, expectedTransferSyntax);
-      if (result) {
-        return {
-          pixelData: result.pixelData,
-          transferSyntax: result.transferSyntax || expectedTransferSyntax,
-          isEncapsulated: result.isEncapsulated,
-          fragments: result.fragmentArrays || result.fragments?.map(f => {
-            // Fallback: slice from concatenated pixelData if fragmentArrays not available
-            return result.pixelData.subarray(f.offset, f.offset + f.length);
-          })
-        };
-      }
-      return null;
-
-    } else {
-      // Skip other elements
-      // Need to read length to skip
-       let vr = 'UN';
-       let length: number;
-
-       if (explicitVR) {
-        const vrBytes = view.readBytes(2);
-        vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
-        if (requiresExplicitLength(vr)) {
-           view.readUint16();
-           length = view.readUint32();
-        } else {
-           length = view.readUint16();
-        }
-      } else {
-         length = view.readUint32();
-      }
-
-      if (length === 0xffffffff) {
-         // Undefined length - skip until delimiter
-         // Danger zone again.
-         // Simplified skip for now
-         if (vr === 'SQ') {
-           // Skip sequence
-           // We can't easily skip undefined length sequence without parsing it.
-           // Since this is `extractPixelData`, we accept that we might fail on complex undefined length sequences if we don't recurse.
-           // But `mediumParse` logic handles it by recursively calling parseSequence?
-           // Here we just want to scan fast.
-           // Similar scan as shallowParse/mediumParse skip logic.
-            let skipped = 0;
-            while (view.getRemainingBytes() >= 8 && skipped < 50000000) {
-              const g = view.readUint16();
-              const e = view.readUint16();
-              if (g === 0xfffe && e === 0xe0dd) {
-                view.readUint32();
-                break;
-              }
-              view.setPosition(view.getPosition() - 4 + 2);
-              skipped += 2;
-            }
-         }
-      } else {
-         if (view.getRemainingBytes() >= length) {
-           view.setPosition(view.getPosition() + length);
-         } else {
-           break; 
-         }
-      }
-    }
-  }
-
-  return null;
+  /**
+   * Optional tags to filter (include only these).
+   * Note: This filters at the root level.
+   */
+  filterTags?: string[];
 }
 
 /**
@@ -500,7 +237,8 @@ export function parseWithMetadata(byteArray: Uint8Array, options: ParseOptions =
     littleEndian: detection.littleEndian,
     characterSet: characterSet,
     transferSyntax: detection.transferSyntax,
-    skipPixelData: options.skipPixelData
+    skipPixelData: options.skipPixelData,
+    filterTags: options.filterTags ? new Set(options.filterTags.map(t => normalizeTag(t))) : undefined
   };
 
   let dict: Record<string, DicomElement>;
@@ -722,6 +460,7 @@ interface ParseContext {
   characterSet: string;
   transferSyntax?: string;
   skipPixelData?: boolean;
+  filterTags?: Set<string>;
 }
 
 /**
@@ -749,6 +488,11 @@ function parseDataElements(
       if (!element) {
         break;
       }
+      
+      // If element returned empty dict (skipped due to filter), continue loop
+      if (Object.keys(element.dict).length === 0) {
+          continue;
+      }
 
       // Check for character set tag (0008,0005) - Specific Character Set
       for (const tag in element.dict) {
@@ -757,10 +501,7 @@ function parseDataElements(
           const charSetElem = element.dict[tag];
           const charSetValue = charSetElem?.Value || charSetElem?.value;
           if (typeof charSetValue === 'string') {
-            // Character set can be multiple values separated by backslash
-            // First value is the primary character set
             detectedCharacterSet = charSetValue.split('\\')[0].trim();
-            // Update context for future parsing
             context.characterSet = detectedCharacterSet;
           } else if (
             Array.isArray(charSetValue) &&
@@ -774,7 +515,6 @@ function parseDataElements(
       }
 
       // Store in all tag formats for compatibility
-      // parseElement already returns elements in all formats, so merge them
       for (const tag in element.dict) {
         dict[tag] = element.dict[tag];
       }
@@ -782,7 +522,6 @@ function parseDataElements(
         normalizedElements[tag] = element.normalizedElements[tag];
       }
     } catch {
-      // Error reading element - stop parsing
       break;
     }
   }
@@ -804,15 +543,10 @@ function parseElement(
   // Read tag
   const group = view.readUint16();
   const element = view.readUint16();
+  const tagHex = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
 
   // Check for sequence delimiter or end of data
-  if (group === 0xfffe && element === 0xe0dd) {
-    // Sequence delimiter
-    view.readUint32(); // Read length (should be 0)
-    return null;
-  }
-  if (group === 0xfffe && element === 0xe00d) {
-    // Item delimiter
+  if (group === 0xfffe && (element === 0xe0dd || element === 0xe00d)) {
     view.readUint32(); // Read length (should be 0)
     return null;
   }
@@ -836,16 +570,43 @@ function parseElement(
     length = view.readUint32();
 
     // Check if private tag and use enhanced detection
-    const tagHex = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
     if (isPrivateTag(tagHex)) {
       vr = detectVRForPrivateTag(group, element, length);
     } else {
       vr = detectVR(group, element);
     }
   }
+  
+  // Filter Check
+  if (context.filterTags && !context.filterTags.has(tagHex)) {
+     // Skip this element
+     if (length === 0xffffffff) {
+        // Skip undefined length (rudimentary skip for speed)
+        if (vr === 'SQ' || (group === 0x7fe0 && element === 0x0010)) {
+           let skipped = 0;
+           while (view.getRemainingBytes() >= 8 && skipped < 50000000) {
+             const g = view.readUint16();
+             const e = view.readUint16();
+             if (g === 0xfffe && e === 0xe0dd) {
+               view.readUint32();
+               break;
+             }
+             view.setPosition(view.getPosition() - 4 + 2);
+             skipped += 2;
+           }
+        }
+     } else {
+         if (view.getRemainingBytes() >= length) {
+            view.setPosition(view.getPosition() + length);
+         } else {
+            return null; // EOF
+         }
+     }
+     // Return empty dict to signal skip
+     return { dict: {}, normalizedElements: {} };
+  }
 
   // Format tag in multiple formats for compatibility
-  const tagHex = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
   const tagComma = `${group.toString(16).padStart(4, '0')},${element.toString(16).padStart(4, '0')}`;
   const tagPlain = `${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
 
@@ -862,88 +623,62 @@ function parseElement(
     const elementLength = length === 0xffffffff ? undefined : length;
     const elementData: DicomElement = {
       vr: 'SQ',
-      VR: 'SQ', // Uppercase version (enumerable)
+      VR: 'SQ', 
       Value: sequence as unknown as Array<string | number> | Record<string, unknown> | Array<Uint8Array>,
-      value: sequence as unknown as Array<string | number> | Record<string, unknown> | Array<Uint8Array>, // Lowercase version (enumerable)
+      value: sequence as unknown as Array<string | number> | Record<string, unknown> | Array<Uint8Array>,
       length: elementLength,
-      Length: elementLength, // Uppercase version (enumerable)
+      Length: elementLength, 
       items: sequence as unknown[],
-      Items: sequence as unknown[], // Uppercase version (enumerable)
+      Items: sequence as unknown[], 
     };
 
-    // Store in all tag formats for compatibility
     return {
-      dict: {
-        [tagHex]: elementData,
-        [tagComma]: elementData,
-        [tagPlain]: elementData,
-      },
-      normalizedElements: {
-        [tagHex]: elementData,
-        [tagComma]: elementData,
-        [tagPlain]: elementData,
-      },
+      dict: { [tagHex]: elementData, [tagComma]: elementData, [tagPlain]: elementData },
+      normalizedElements: { [tagHex]: elementData, [tagComma]: elementData, [tagPlain]: elementData },
     };
   }
 
-  // Handle pixel data (7FE0,0010) - extract even if large
+  // Handle pixel data (7FE0,0010)
   const isPixelData = group === 0x7fe0 && element === 0x0010;
-
-  // Read value
-  let value: string | number | Array<string | number> | Record<string, unknown> | Uint8Array | Array<Uint8Array> | undefined =
-    undefined;
+  let value: string | number | Array<string | number> | Record<string, unknown> | Uint8Array | Array<Uint8Array> | undefined = undefined;
 
   if (isPixelData) {
     if (context.skipPixelData) {
-       // Skip Pixel Data loading
        if (length === 0xffffffff) {
-          // Encapsulated - find delimiter
           let skipped = 0;
-          while (view.getRemainingBytes() >= 8 && skipped < 100000000) { // Safety limit
+          while (view.getRemainingBytes() >= 8 && skipped < 100000000) {
            const g = view.readUint16();
            const e = view.readUint16();
            if (g === 0xfffe && e === 0xe0dd) {
-             view.readUint32(); // Read delimiter length
+             view.readUint32();
              break;
            }
-           view.setPosition(view.getPosition() - 4 + 2); // Shift 2 bytes to scan
+           view.setPosition(view.getPosition() - 4 + 2);
            skipped += 2;
           }
        } else {
          view.readBytes(length);
        }
-       // We still return an element, just without the heavy 'Value'
        value = undefined; 
     } else {
-        // Extract pixel data (can be large) - use current view position
         const pixelDataResult = extractPixelDataFromView(view, length, context.transferSyntax);
-
         if (pixelDataResult) {
-          // Export pixel data in compatible format:
-          // - Uncompressed: Direct Uint8Array
-          // - Encapsulated: Array<Uint8Array> (fragments)
           if (pixelDataResult.isEncapsulated && pixelDataResult.fragmentArrays && pixelDataResult.fragmentArrays.length > 0) {
-            // Encapsulated: return array of fragments
             value = pixelDataResult.fragmentArrays;
           } else {
-            // Uncompressed: return direct Uint8Array
             value = pixelDataResult.pixelData;
           }
-
-          // View position is already advanced by extractPixelData
         } else {
-          // Failed to extract - skip
           if (length === 0xffffffff) {
-              // Skip encapsulated data - try to find delimiter
               let skipped = 0;
               while (view.getRemainingBytes() >= 8 && skipped < 1000000) {
               const g = view.readUint16();
               const e = view.readUint16();
               if (g === 0xfffe && e === 0xe0dd) {
-                  view.readUint32(); // Read delimiter length
+                  view.readUint32();
                   break;
               }
-              view.setPosition(view.getPosition() - 4); // Back up
+              view.setPosition(view.getPosition() - 4); 
               view.readBytes(Math.min(8, view.getRemainingBytes()));
               skipped += 8;
               }
@@ -954,14 +689,11 @@ function parseElement(
         }
     }
   } else if (length > 0 && view.getRemainingBytes() >= length) {
-    // Regular element - apply size limit for non-pixel data
-    const maxSize = 10000000; // 10MB limit for regular elements
+    const maxSize = 10000000; 
     if (length > maxSize) {
-      // Safety check: skip very large values (except pixel data)
       view.readBytes(maxSize);
       return null;
     }
-
     try {
       value = parseElementValue(view, vr, length, context.characterSet);
     } catch {
@@ -971,40 +703,512 @@ function parseElement(
   } else if (length === 0) {
     value = undefined;
   } else {
-    // Not enough bytes - end of file
     return null;
   }
 
-  // Create element with both uppercase and lowercase keys (enumerable)
   const elementData: DicomElement = {
-    vr,
-    VR: vr, // Uppercase version (enumerable)
-    Value: value,
-    value: value, // Lowercase version (enumerable)
-    length,
-    Length: length, // Uppercase version (enumerable)
+    vr, VR: vr, Value: value, value: value, length, Length: length,
   };
+  if (elementData.items === undefined) { elementData.items = undefined; elementData.Items = undefined; }
 
-  // Add items/Items if undefined (for consistency)
-  if (elementData.items === undefined) {
-    elementData.items = undefined;
-    elementData.Items = undefined;
-  }
-
-  // Store in all tag formats for compatibility
   return {
-    dict: {
-      [tagHex]: elementData,
-      [tagComma]: elementData,
-      [tagPlain]: elementData,
-    },
-    normalizedElements: {
-      [tagHex]: elementData,
-      [tagComma]: elementData,
-      [tagPlain]: elementData,
-    },
+    dict: { [tagHex]: elementData, [tagComma]: elementData, [tagPlain]: elementData },
+    normalizedElements: { [tagHex]: elementData, [tagComma]: elementData, [tagPlain]: elementData },
   };
 }
+
+/**
+ * Unified Parser Options
+ */
+
+
+/**
+ * Unified Parser Options
+ */
+export interface UnifiedParseOptions {
+  /**
+   * Parsing strategy:
+   * - 'shallow': (Default) Structured scan only (offsets/lengths). Very fast.
+   * - 'full': Eagerly decodes all values.
+   * - 'light': Full parse but skips reading Pixel Data value (saves memory).
+   * - 'lazy': Returns object that reads values from buffer on demand.
+   * 
+   * Note: 'custom' is no longer a distinct type. Use `tags` option with any type
+   * to restrict parsing/scanning to specific tags.
+   */
+  type?: 'shallow' | 'full' | 'light' | 'lazy';
+  
+  /**
+   * Tags to include in the result.
+   * Can be a single tag string or array of tag strings.
+   * Formats: 'x00100010', '0010,0010', or '00100010'.
+   */
+  tags?: string | string[];
+
+  // Deprecated options removed (customTags, tag)
+}
+
+/**
+ * Main Unified Parse Function
+ * 
+ * @param byteArray - The DICOM file data
+ * @param options - Configuration options
+ */
+export function parse(byteArray: Uint8Array, options: UnifiedParseOptions = {}): DicomDataSet | ShallowDicomDataSet {
+  const mode = options.type || 'shallow';
+
+  // Normalize tags
+  let filterTags: string[] | undefined;
+  if (options.tags) {
+    if (Array.isArray(options.tags)) {
+      filterTags = options.tags;
+    } else {
+      filterTags = [options.tags];
+    }
+  }
+
+  // Common: if full/light, we pass tags to parseWithMetadata (via fullParse wrapper which needs update)
+  // But fullParse currently doesn't accept options. I need to update fullParse/mediumParse signatures? 
+  // No, I can call parseWithMetadata directly here if I want, or update helpers.
+  // Best to call parseWithMetadata/shallowParse directly for maximum control in this unified function.
+
+  switch (mode) {
+    case 'full':
+    case 'light':
+      const parseOpts: ParseOptions = {
+        skipPixelData: mode === 'light',
+        filterTags: filterTags // We need to add this to ParseOptions!
+      };
+      // We can call parseWithMetadata directly
+      const res = parseWithMetadata(byteArray, parseOpts);
+      return res.dataset;
+      
+    case 'shallow':
+      return shallowParse(byteArray, filterTags);
+
+    case 'lazy':
+      return createLazyDataSet(byteArray, filterTags);
+      
+    default:
+      throw new Error(`Unknown parse type: ${mode}`);
+  }
+}
+
+
+function createLazyDataSet(byteArray: Uint8Array, filterTags?: string[]): DicomDataSet {
+  // 1. Perform shallow parse to get offsets
+  const shallow = shallowParse(byteArray, filterTags);
+  
+  // Normalize filter tags if present
+  const validTags = filterTags ? new Set(filterTags.map(t => normalizeTag(t))) : null;
+
+  // 2. Wrap in a Proxy to separate read logic
+  let buffer: ArrayBuffer;
+  if (byteArray.buffer instanceof ArrayBuffer) {
+    buffer = byteArray.buffer;
+  } else {
+    buffer = new ArrayBuffer(byteArray.byteLength);
+    new Uint8Array(buffer).set(byteArray);
+  }
+  
+  const view = new SafeDataView(buffer);
+  
+  // Detect endianness again for reading values
+  let detection: FormatDetection;
+  try {
+     detection = detectDicomFormat(view, buffer);
+  } catch {
+     // fallback
+     detection = { offset: 0, isDicomPart10: false, transferSyntax: TRANSFER_SYNTAX_IMPLICIT_VR_LITTLE_ENDIAN, explicitVR: false, littleEndian: true, characterSet: 'ISO_IR 192' };
+  }
+  
+  view.setEndianness(detection.littleEndian);
+  
+  const context = {
+    view,
+    characterSet: detection.characterSet
+  };
+  
+  // Helper to read a tag value given shallow element
+  const readValue = (tag: string) => {
+    // If filter is active and tag not allowed, return undefined (mimic absence)
+    if (validTags && !validTags.has(tag)) return undefined;
+
+    const meta = shallow[tag];
+    if (!meta) return undefined;
+    
+    view.setPosition(meta.dataOffset);
+    const vr = meta.vr;
+    const length = meta.length;
+    
+    if (length === 0) return undefined;
+    if (length === 0xffffffff) return undefined; // Lazy doesn't support encapsulated/undefined length values well yet
+    
+    try {
+      return parseElementValue(view, vr, length, context.characterSet); 
+    } catch (e) {
+      return undefined;
+    }
+  };
+
+  // Create the proxy for 'dict'
+  const dictProxy = new Proxy({}, {
+    get: (target, prop) => {
+      if (typeof prop === 'string') {
+        const val = readValue(prop);
+        if (val !== undefined) {
+           return {
+             vr: shallow[prop]?.vr || 'UN',
+             Value: val,
+             value: val,
+             length: shallow[prop]?.length
+           };
+        }
+      }
+      return undefined;
+    },
+    has: (target, prop) => {
+        if (typeof prop !== 'string') return false;
+        if (validTags && !validTags.has(prop)) return false;
+        // Check shallow
+        const meta = shallow[prop];
+        return !!meta;
+    },
+    ownKeys: (target) => {
+        const keys = Object.keys(shallow);
+        return validTags ? keys.filter(k => validTags.has(k)) : keys;
+    },
+    getOwnPropertyDescriptor: (target, prop) => {
+         if (typeof prop === 'string' && shallow[prop]) {
+             if (validTags && !validTags.has(prop)) {
+                  return undefined;
+             }
+             return { enumerable: true, configurable: true };
+         }
+         return undefined;
+    }
+  });
+
+  return {
+    dict: dictProxy as Record<string, DicomElement>,
+    elements: dictProxy as Record<string, DicomElement>,
+    string: (tag) => { const v = readValue(tag); return typeof v === 'string' ? v : undefined; },
+    uint16: (tag) => { const v = readValue(tag); return typeof v === 'number' ? v : undefined; }, 
+    int16: (tag) => { const v = readValue(tag); return typeof v === 'number' ? v : undefined; },
+    floatString: (tag) => { const v = readValue(tag); return typeof v === 'number' ? v : undefined; },
+  };
+}
+
+/**
+ * Parse DICOM file using shallow parsing (tags only, no values)
+ * Optimized for speed. Similar to dicom-parser's default behavior.
+ * @deprecated Use `parse(byteArray, { type: 'shallow' })` instead.
+ *
+ * @param byteArray - The DICOM file as a Uint8Array
+ * @param filterTags - Optional array of tags to include
+ * @returns A ShallowDicomDataSet map
+ */
+export function shallowParse(byteArray: Uint8Array, filterTags?: string[]): ShallowDicomDataSet {
+  let buffer: ArrayBuffer;
+  let byteOffset = 0;
+  if (byteArray.buffer instanceof ArrayBuffer) {
+    buffer = byteArray.buffer;
+    byteOffset = byteArray.byteOffset;
+  } else {
+    buffer = new ArrayBuffer(byteArray.byteLength);
+    const newView = new Uint8Array(buffer);
+    newView.set(byteArray);
+  }
+
+  const view = new SafeDataView(buffer, byteOffset, byteArray.byteLength);
+  
+  // Detect format
+  let detection: FormatDetection;
+  try {
+    detection = detectDicomFormat(view, buffer);
+  } catch {
+    // Fallback defaults
+    detection = {
+      offset: 0,
+      isDicomPart10: false,
+      transferSyntax: TRANSFER_SYNTAX_IMPLICIT_VR_LITTLE_ENDIAN,
+      explicitVR: false,
+      littleEndian: true,
+      characterSet: 'ISO_IR 192'
+    };
+  }
+
+  view.setEndianness(detection.littleEndian);
+  view.setPosition(detection.offset);
+
+  const result: ShallowDicomDataSet = {};
+  const maxIterations = 100000;
+  let iterations = 0;
+  const explicitVR = detection.explicitVR;
+  
+  // Normalize filter tags for fast lookup
+  const allowedTags = filterTags ? new Set(filterTags.map(t => normalizeTag(t))) : null;
+
+  while (view.getRemainingBytes() >= 8 && iterations < maxIterations) {
+    iterations++;
+
+    // Save start position
+    const elementStart = view.getPosition();
+    
+    // Read tag
+    const group = view.readUint16();
+    const element = view.readUint16();
+    const tagKey = `x${group.toString(16).padStart(4, '0')}${element.toString(16).padStart(4, '0')}`;
+    
+    // Check for delimiters
+    if (group === 0xfffe) {
+       // ... existing skip logic ... (omitted for brevity in prompt thought, but added in replacement)
+       if (element === 0xe0dd || element === 0xe00d || element === 0xe000) {
+         view.readUint32(); 
+         continue;
+       }
+    }
+
+    // Checking filter EARLY:
+    // If we have a filter and this tag is NOT in it, we still need to parse length to skip!
+    // So we proceed to read VR/Length.
+
+    // Read VR and Length
+    let vr = 'UN';
+    let length: number;
+    let headerLength = 0;
+
+    if (explicitVR) {
+      const vrBytes = view.readBytes(2);
+      vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
+      
+      if (requiresExplicitLength(vr)) {
+        view.readUint16(); 
+        length = view.readUint32();
+        headerLength = 12;
+      } else {
+        length = view.readUint16();
+        headerLength = 8;
+      }
+    } else {
+      length = view.readUint32();
+      headerLength = 8;
+      // Implicit VR detection
+      vr = detectVR(group, element) || 'UN';
+    }
+
+    // Now decide to store or skip
+    if (allowedTags && !allowedTags.has(tagKey)) {
+        // Skip
+        if (length === 0xffffffff) {
+            // ... skip undefined ...
+            // Reuse logic from scan
+            if (vr === 'SQ' || (group === 0x7fe0 && element === 0x0010)) {
+               let skipped = 0;
+               while (view.getRemainingBytes() >= 8 && skipped < 50000000) {
+                 const g = view.readUint16();
+                 const e = view.readUint16();
+                 if (g === 0xfffe && e === 0xe0dd) {
+                   view.readUint32();
+                   break;
+                 }
+                 view.setPosition(view.getPosition() - 4 + 2);
+                 skipped += 2;
+               }
+            }
+        } else {
+            if (view.getRemainingBytes() >= length) {
+              view.setPosition(view.getPosition() + length);
+            } else {
+              break;
+            }
+        }
+        continue; // DONE with this element (skipped)
+    }
+
+    // If we are here, we want this tag
+    const dataOffset = elementStart + headerLength;
+    result[tagKey] = {
+      tag: tagKey,
+      vr,
+      length,
+      dataOffset
+    };
+
+    // Advance past value (same logic as above)
+    if (length === 0xffffffff) {
+       if (vr === 'SQ' || (group === 0x7fe0 && element === 0x0010)) {
+         let skipped = 0;
+         while (view.getRemainingBytes() >= 8 && skipped < 50000000) {
+           const g = view.readUint16();
+           const e = view.readUint16();
+           if (g === 0xfffe && e === 0xe0dd) {
+             view.readUint32();
+             break;
+           }
+           view.setPosition(view.getPosition() - 4 + 2);
+           skipped += 2;
+         }
+       } 
+    } else {
+      if (view.getRemainingBytes() >= length) {
+        view.setPosition(view.getPosition() + length);
+      } else {
+        break; 
+      }
+    }
+  }
+
+  return result;
+}
+
+
+
+
+/**
+ * Extract pixel data from DICOM file
+ * Scans for Pixel Data element (7FE0,0010) and returns it.
+ *
+ * @param byteArray - The DICOM file as a Uint8Array
+ * @returns PixelDataInfo or null if not found
+ */
+export function extractPixelData(byteArray: Uint8Array): PixelDataInfo | null {
+  // Ensure ArrayBuffer and SafeDataView
+  let buffer: ArrayBuffer;
+  let byteOffset = 0;
+  if (byteArray.buffer instanceof ArrayBuffer) {
+    buffer = byteArray.buffer;
+    byteOffset = byteArray.byteOffset;
+  } else {
+    buffer = new ArrayBuffer(byteArray.byteLength);
+    const newView = new Uint8Array(buffer);
+    newView.set(byteArray);
+  }
+
+  const view = new SafeDataView(buffer, byteOffset, byteArray.byteLength);
+
+  // Detect format
+  let detection: FormatDetection;
+  try {
+    detection = detectDicomFormat(view, buffer);
+  } catch {
+     return null;
+  }
+
+  view.setEndianness(detection.littleEndian);
+  view.setPosition(detection.offset);
+
+  const expectedTransferSyntax = detection.transferSyntax;
+  const explicitVR = detection.explicitVR;
+  const maxIterations = 100000;
+  let iterations = 0;
+
+  while (view.getRemainingBytes() >= 8 && iterations < maxIterations) {
+    iterations++;
+    
+    // Read tag
+    const group = view.readUint16();
+    const element = view.readUint16();
+
+     // Check for sequence/item delimiters
+    if (group === 0xfffe) {
+      if (element === 0xe0dd || element === 0xe00d || element === 0xe000) {
+        view.readUint32(); // Skip length
+        continue;
+      }
+    }
+
+    if (group === 0x7fe0 && element === 0x0010) {
+      // Found Pixel Data!
+      // Read VR and Length
+      let vr = 'OW'; // Default for implicit
+      let length: number;
+
+      if (explicitVR) {
+        const vrBytes = view.readBytes(2);
+        vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
+        if (requiresExplicitLength(vr)) {
+           view.readUint16();
+           length = view.readUint32();
+        } else {
+           length = view.readUint16();
+        }
+      } else {
+         length = view.readUint32();
+      }
+
+      // Extract
+      const result = extractPixelDataFromView(view, length, expectedTransferSyntax);
+      if (result) {
+        return {
+          pixelData: result.pixelData,
+          transferSyntax: result.transferSyntax || expectedTransferSyntax,
+          isEncapsulated: result.isEncapsulated,
+          fragments: result.fragmentArrays || result.fragments?.map(f => {
+            // Fallback: slice from concatenated pixelData if fragmentArrays not available
+            return result.pixelData.subarray(f.offset, f.offset + f.length);
+          })
+        };
+      }
+      return null;
+
+    } else {
+      // Skip other elements
+      // Need to read length to skip
+       let vr = 'UN';
+       let length: number;
+
+       if (explicitVR) {
+        const vrBytes = view.readBytes(2);
+        vr = String.fromCharCode(vrBytes[0], vrBytes[1]);
+        if (requiresExplicitLength(vr)) {
+           view.readUint16();
+           length = view.readUint32();
+        } else {
+           length = view.readUint16();
+        }
+      } else {
+         length = view.readUint32();
+      }
+
+      if (length === 0xffffffff) {
+         // Undefined length - skip until delimiter
+         // Danger zone again.
+         // Simplified skip for now
+         if (vr === 'SQ') {
+           // Skip sequence
+           // We can't easily skip undefined length sequence without parsing it.
+           // Since this is `extractPixelData`, we accept that we might fail on complex undefined length sequences if we don't recurse.
+           // But `mediumParse` logic handles it by recursively calling parseSequence?
+           // Here we just want to scan fast.
+           // Similar scan as shallowParse/mediumParse skip logic.
+            let skipped = 0;
+            while (view.getRemainingBytes() >= 8 && skipped < 50000000) {
+              const g = view.readUint16();
+              const e = view.readUint16();
+              if (g === 0xfffe && e === 0xe0dd) {
+                view.readUint32();
+                break;
+              }
+              view.setPosition(view.getPosition() - 4 + 2);
+              skipped += 2;
+            }
+         }
+      } else {
+         if (view.getRemainingBytes() >= length) {
+           view.setPosition(view.getPosition() + length);
+         } else {
+           break; 
+         }
+      }
+    }
+  }
+
+  return null;
+}
+
+
+
 
 /**
  * Parse element value based on VR
@@ -1086,6 +1290,7 @@ function parseElementValue(
 /**
  * Create dataset with accessor methods
  */
+
 function createDataSet(
   dict: Record<string, DicomElement>,
   normalizedElements: Record<string, DicomElement>

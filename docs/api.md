@@ -4,15 +4,15 @@ This guide documents every public export from `rad-parser`. The package is organ
 
 ## Parser Entry Points
 
-| Export                                                              | Description                                                                                                                                                                                          |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fullParse(byteArray: Uint8Array): DicomDataSet`                    | **Default.** Parses a DICOM file and returns a fully populated dataset with helper accessors (`string`, `uint16`, `int16`, `floatString`) and `PixelData` extraction. Throws if the file is invalid. |
-| `parseWithRadParser(byteArray: Uint8Array): DicomDataSet`           | Alias for `fullParse` (backward compatibility).                                                                                                                                                      |
-| `shallowParse(byteArray: Uint8Array): ShallowDicomDataSet`          | **Fastest.** Scans only the top-level tags. Does not recurse into sequences or decode values. Ideal for indexing or quick tag lookups.                                                               |
-| `mediumParse(byteArray: Uint8Array): DicomDataSet`                  | **Optimized Metadata.** Parses recursively like `fullParse` but **skips** loading bulk `PixelData` and large tags. Perfect for viewing metadata without memory overhead.                             |
-| `parseWithMetadata(byteArray: Uint8Array): ParseResult`             | Same as `fullParse` but returns `{ dataset, transferSyntax, characterSet }`. Useful when you need the detected transfer syntax for downstream logic.                                                 |
-| `extractTransferSyntax(byteArray: Uint8Array): string \| undefined` | Quickly read the Transfer Syntax UID (e.g., `1.2.840.10008.1.2.1`) without fully parsing the dataset.                                                                                                |
-| `canParse(byteArray: Uint8Array): boolean`                          | Lightweight check to assert whether the bytes look like a DICOM file (either Part 10 or non-Part 10).                                                                                                |
+| Export                                                              | Description                                                                                                                                                                      |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parse(byteArray: Uint8Array, options?: UnifiedParseOptions)`       | **Unified Entry Point (Recommended).** Supports all parsing modes (`type`: 'shallow'\|'full'\|'light'\|'lazy') and tag filtering (`tags`). Returns the appropriate dataset type. |
+| `fullParse(byteArray: Uint8Array): DicomDataSet`                    | **Deprecated.** Use `parse(bytes, { type: 'full' })`. Parses a DICOM file and returns a fully populated dataset.                                                                 |
+| `shallowParse(byteArray: Uint8Array): ShallowDicomDataSet`          | **Deprecated.** Use `parse(bytes, { type: 'shallow' })`. Scans only the top-level tags.                                                                                          |
+| `mediumParse(byteArray: Uint8Array): DicomDataSet`                  | **Deprecated.** Use `parse(bytes, { type: 'light' })`. Parses recursively but **skips** loading bulk `PixelData`.                                                                |
+| `parseWithMetadata(byteArray: Uint8Array): ParseResult`             | Same as `fullParse` but returns `{ dataset, transferSyntax, characterSet }`. Useful when you need the detected transfer syntax for downstream logic.                             |
+| `extractTransferSyntax(byteArray: Uint8Array): string \| undefined` | Quickly read the Transfer Syntax UID (e.g., `1.2.840.10008.1.2.1`) without fully parsing the dataset.                                                                            |
+| `canParse(byteArray: Uint8Array): boolean`                          | Lightweight check to assert whether the bytes look like a DICOM file (either Part 10 or non-Part 10).                                                                            |
 
 ## Streaming Helpers
 
@@ -50,13 +50,15 @@ This guide documents every public export from `rad-parser`. The package is organ
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DicomElement`, `DicomDataSet`                    | Core types describing DICOM elements and datasets. **Note:** `elements` property in `DicomDataSet` is non-enumerable to prevent JSON duplication. |
 | `ShallowDicomDataSet`, `ShallowDicomElement`      | Lightweight types returned by `shallowParse`.                                                                                                     |
+| `UnifiedParseOptions`                             | Configuration for the unified `parse()` function. Properties: `type` ('shallow'\|'full'\|'light'\|'lazy') and `tags` (string[] of tags to parse). |
 | `ParseResult`, `PixelDataResult`, `PixelDataInfo` | Results for parsing and pixel extraction.                                                                                                         |
 
 ## Best Practices
 
--   **Indexing/Scanning:** Use `shallowParse`. It's ~2x faster than full parsing.
--   **Metadata Viewers:** Use `mediumParse`. It provides all metadata but skips the heavy pixel data.
--   **Full Validation/Rendering:** Use `fullParse` (or `parseWithRadParser`).
+-   **Unified Access:** Use `parse()` with `type: 'shallow'` (fast scanning) or `type: 'full'` (validation/rendering).
+-   **Indexing/Scanning:** `parse(bytes, { type: 'shallow' })` or `shallowParse`. ~2x faster than full parsing.
+-   **Metadata Viewers:** `parse(bytes, { type: 'light' })` or `mediumParse`. Provides metadata while skipping heavy pixel data.
+-   **Full Validation/Rendering:** `parse(bytes, { type: 'full' })` or `fullParse`.
 -   **Parsing Large Files:** Use `StreamingParser` or `extractPixelData` to avoid loading everything into memory.
 -   **JSON Output:** `JSON.stringify(dataset)` will produce clean output without duplicate keys. To access legacy properties (e.g., `VR` vs `vr`), use standard property access in code (e.g., `element.VR`).
 
@@ -65,4 +67,3 @@ This guide documents every public export from `rad-parser`. The package is organ
 -   `dist/rad-parser.js` / `dist/rad-parser.min.js`: Standard bundles with the full dictionary included.
 -   `dist/rad-parser-nodict.js` / `dist/rad-parser-nodict.min.js`: Dictionary-free bundles that omit `dicomDictionary`, `getTagName`, and `isPrivateTag` for smaller payloads. Use this variant when you resolve tags another way or only care about core parsing utilities.
     \*\*\* End Patch
-

@@ -45,8 +45,7 @@ test_data/*
 
 # Results
 results/*
-!results/.gitkeep
-
+scripts/results/*
 # Benchmark results
 benchmark-results.json
 
