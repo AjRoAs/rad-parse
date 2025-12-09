@@ -43,6 +43,10 @@ benchmark-results.json
 test_data/*
 !test_data/.gitkeep
 
+# Results
+results/*
+!results/.gitkeep
+
 # Benchmark results
 benchmark-results.json
 

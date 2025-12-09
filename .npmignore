@@ -31,6 +31,8 @@ benchmark.ts
 core/
 docs/
 tests/
+results/
+test_data/
 
 # Environment
 .env
