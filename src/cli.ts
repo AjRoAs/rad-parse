@@ -1,27 +1,29 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse, write, anonymize, registry, RleDecoder, BrowserImageDecoder, WebGpuDecoder, WebGlDecoder, Jpeg2000Decoder, JpegLsDecoder } from './index';
+import { parse, write, anonymize, registry, RleCodec, BrowserImageCodec, WebGpuDecoder, WebGlDecoder, Jpeg2000Decoder, JpegLsDecoder, JpegLosslessDecoder, VideoDecoder } from './index';
 import { formatTagWithComma } from './utils/tagUtils';
 
 // Register Plugins
-registry.register(new RleDecoder());
-registry.register(new BrowserImageDecoder());
+registry.register(new RleCodec());
+registry.register(new BrowserImageCodec());
 registry.register(new WebGpuDecoder());
 registry.register(new WebGlDecoder());
 // Register Adapters (inactive by default without external decoder)
 registry.register(new Jpeg2000Decoder());
 registry.register(new JpegLsDecoder());
+registry.register(new JpegLosslessDecoder());
+registry.register(new VideoDecoder());
 
 const args = process.argv.slice(2);
 const command = args[0];
 
-if (!command) {
-    printHelp();
-    process.exit(1);
-}
-
 async function run() {
+    if (!command) {
+        printHelp();
+        process.exit(1);
+    }
+
     switch (command) {
         case 'dump':
             if (!args[1]) {
@@ -44,7 +46,7 @@ async function run() {
                 console.error('Usage: rad-parser convert <input> <output>');
                 process.exit(1);
             }
-            convertFile(args[1], args[2]);
+            await convertFile(args[1], args[2]);
             break;
             
         case 'help':
@@ -85,7 +87,7 @@ function dumpFile(filePath: string) {
         const sortedTags = Object.keys(dataset.dict).sort();
         
         for (const tag of sortedTags) {
-            const element = dataset.dict[tag];
+            const element = (dataset.dict as any)[tag];
             const tagName = formatTagWithComma(tag);
             const vr = element.vr || 'UN';
             let value = element.Value;
@@ -124,7 +126,7 @@ function anonymizeFile(inputPath: string, outputPath?: string) {
         }
         
         const buffer = fs.readFileSync(inputPath);
-        const dataset = parse(new Uint8Array(buffer), { type: 'full' });
+        const dataset = parse(new Uint8Array(buffer), { type: 'full' }) as import('./core/types').DicomDataSet;
         
         console.log(`Anonymizing ${inputPath}...`);
         const anonDataset = anonymize(dataset);
@@ -141,11 +143,46 @@ function anonymizeFile(inputPath: string, outputPath?: string) {
     }
 }
 
-function convertFile(inputPath: string, outputPath: string) {
+
+async function convertFile(inputPath: string, outputPath: string) {
     try {
         const buffer = fs.readFileSync(inputPath);
         console.log(`Reading ${inputPath}...`);
-        const dataset = parse(new Uint8Array(buffer), { type: 'full' });
+        const dataset = parse(new Uint8Array(buffer), { type: 'full' }) as import('./core/types').DicomDataSet;
+        
+        // Let's implement robust Logic:
+        // 1. Get current Transfer Syntax
+        const transferSyntaxElement = dataset.dict['x00020010'];
+        const currentTs = transferSyntaxElement ? (transferSyntaxElement.Value as string[])[0] : '1.2.840.10008.1.2.1';
+        console.log(`Current Transfer Syntax: ${currentTs}`);
+
+        // 2. Decode Pixel Data if compressed
+        const pixelParams = getPixelDataParams(dataset);
+        
+        if (pixelParams && pixelParams.pixelData) {
+             const decoder = await registry.getDecoder(currentTs);
+             if (decoder) {
+                 console.log(`Decoding using ${decoder.name}...`);
+                 const raw = await decoder.decode(pixelParams.pixelData, pixelParams.length);
+                 // 3. Re-Encode logic could go here
+                 
+                 const targetTs = '1.2.840.10008.1.2.1'; // Explicit Little Endian
+                 
+                 // Updating PixelData
+                 dataset.dict['x7fe00010'].Value = raw; 
+                 dataset.dict['x7fe00010'].vr = 'OW'; 
+                 // Update Transfer Syntax
+                 if (dataset.dict['x00020010']) {
+                    dataset.dict['x00020010'].Value = [targetTs];
+                 } else {
+                     // Add if missing (unlikely if valid dicom)
+                     dataset.dict['x00020010'] = { vr: 'UI', Value: [targetTs] };
+                 } 
+                 console.log('Transcoded to Uncompressed (Explicit VR Little Endian)');
+             } else {
+                 console.log('No decoder found or already uncompressed.');
+             }
+        }
         
         console.log(`Writing to ${outputPath}...`);
         const outBytes = write(dataset);
@@ -159,12 +196,26 @@ function convertFile(inputPath: string, outputPath: string) {
     }
 }
 
-// export main for testing if needed
+function getPixelDataParams(dataset: any) {
+    const el = dataset.dict['x7fe00010'];
+    if (!el || !el.Value) return null;
+    // Check if encapsulated
+    if (Array.isArray(el.Value) && el.Value[0] instanceof Uint8Array && el.Value.length > 1) {
+        return { pixelData: el.Value, length: 0 }; 
+    }
+     if (Array.isArray(el.Value) && el.Value[0] instanceof Uint8Array && el.Value.length === 1 && el.vr === 'OB') {
+         // Single fragment OW/OB
+         return { pixelData: el.Value as Uint8Array[], length: el.Value[0].length };
+    }
+    return null;
+}
+
 export { run };
 
 // Run if main
 import { fileURLToPath } from 'url';
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// ESM check
+if (import.meta.url && process.argv[1] === fileURLToPath(import.meta.url)) {
     run().catch(err => {
         console.error(err);
         process.exit(1);

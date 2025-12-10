@@ -1,34 +1,97 @@
-import { describe, it, expect } from 'vitest';
-import { registry, RleDecoder, BrowserImageDecoder, WebGpuDecoder } from '../src/index';
 
-describe('Codec Registry', () => {
-    it('should register and prioritize decoders', async () => {
-        // Clear or mock registry
-        const rle = new RleDecoder();
-        const browser = new BrowserImageDecoder();
+import { describe, it, expect, vi } from 'vitest';
+import { registry, RleCodec, BrowserImageCodec, WebGpuDecoder, Jpeg2000Decoder, JpegLsDecoder, VideoDecoder, JpegLosslessDecoder } from '../src/index';
+
+describe('Codec Registry and Plugins', () => {
+
+    it('should register and prioritize codecs', async () => {
+        const rle = new RleCodec();
+        const browser = new BrowserImageCodec();
         
-        registry.register(rle); // 10
-        registry.register(browser); // 50
+        // Manual Registry for isolation
+        const testRegistry = new (registry.constructor as any)();
+        testRegistry.register(rle); // 10
+        testRegistry.register(browser); // 50
         
-        // 1.2.840.10008.1.2.5 is RLE
-        // Browser doesn't support it.
-        const d1 = await registry.getDecoder('1.2.840.10008.1.2.5');
-        expect(d1?.name).toBe('rle-ts');
+        // 1.2.840.10008.1.2.5 is RLE (Supported by RLE Plugin)
+        const d1 = await testRegistry.getDecoder('1.2.840.10008.1.2.5');
+        expect(d1?.name).toBe('rle-typescript');
         
-        // 1.2.840.10008.1.2.4.50 is JPEG
+        // 1.2.840.10008.1.2.4.50 is JPEG (Supported by Browser and Video??)
         // Browser supports it.
-        // Mock window/ImageDecoder if needed for full test, but here checking selection logic.
-        // BrowserImageDecoder.isSupported() returns false in Node environment.
-        // So it should fallback to null or whatever is next.
+        // In Node, Browser plugin isSupported() = false.
+        // So unless we mock window, it won't be returned.
+    });
+
+    it('should retrieve encoders', async () => {
+        const rle = new RleCodec();
+        expect(rle.canEncode('1.2.840.10008.1.2.5')).toBe(true);
+        
+        const testRegistry = new (registry.constructor as any)();
+        testRegistry.register(rle);
+        
+        const enc = await testRegistry.getEncoder('1.2.840.10008.1.2.5');
+        expect(enc).toBeDefined();
+        expect(enc?.name).toBe('rle-typescript');
+    });
+
+});
+
+describe('RLE Codec', () => {
+    it('should encode data to RLE format', async () => {
+        const codec = new RleCodec();
+        const data = new Uint8Array([1, 1, 1, 2, 3, 3]);
+        // PackBits: 
+        // 3x1 -> -2, 1
+        // 1x2 -> 0, 2 (Literal)
+        // 2x3 -> -1, 3
+        
+        // RLE Header is 64 bytes.
+        const encoded = await codec.encode(data, '1.2.840.10008.1.2.5', 6, 1, 1, 8);
+        expect(encoded.length).toBe(1);
+        expect(encoded[0].length).toBeGreaterThan(64);
+        
+        // Check Header
+        const view = new DataView(encoded[0].buffer);
+        expect(view.getUint32(0, true)).toBe(1); // 1 Segment
     });
 });
 
-describe('RLE Decoder', () => {
-    it('should be supported', () => {
-        const d = new RleDecoder();
-        expect(d.isSupported()).toBe(true);
-        expect(d.canDecode('1.2.840.10008.1.2.5')).toBe(true);
+describe('Adapter Plugins with Injection', () => {
+    
+    it('should use injected decoder for JPEG 2000', async () => {
+        const mockDecode = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+        const codec = new Jpeg2000Decoder(mockDecode);
+        
+        expect(codec.isSupported()).toBe(true);
+        
+        const res = await codec.decode([new Uint8Array(10)]);
+        expect(mockDecode).toHaveBeenCalled();
+        expect(res).toEqual(new Uint8Array([1, 2, 3]));
+    });
+
+    it('should use injected encoder for JPEG-LS', async () => {
+        const mockEncode = vi.fn().mockResolvedValue([new Uint8Array([9, 9])]);
+        const codec = new JpegLsDecoder(undefined, mockEncode);
+        
+        expect(codec.canEncode('1.2.840.10008.1.2.4.80')).toBe(true);
+        
+        const res = await codec.encode(new Uint8Array([1]), '1.2.840.10008.1.2.4.80', 1, 1, 1, 8);
+        expect(mockEncode).toHaveBeenCalled();
+        expect(res[0]).toEqual(new Uint8Array([9, 9]));
+    });
+
+    it('should support Video/MPEG formats via adapter', async () => {
+        const mockDecode = vi.fn();
+        const codec = new VideoDecoder(mockDecode);
+        
+        expect(codec.canDecode('1.2.840.10008.1.2.4.102')).toBe(true); // H.264
     });
     
-    // Add real RLE decode test if we have RLE sample data
+    it('should support JPEG Lossless via adapter', async () => {
+         const codec = new JpegLosslessDecoder(async () => new Uint8Array(0));
+         expect(codec.canDecode('1.2.840.10008.1.2.4.57')).toBe(true);
+         expect(codec.canDecode('1.2.840.10008.1.2.4.70')).toBe(true);
+    });
+
 });

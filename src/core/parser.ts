@@ -293,17 +293,19 @@ function detectDicomFormat(view: SafeDataView, buffer: ArrayBuffer): FormatDetec
     view.setPosition(0);
     try {
       const group = view.peekUint16();
-      if (group <= 0xffff) {
+      // console.log(`detectDicomFormat: Group=0x${group.toString(16)} (Pos: ${view.getPosition()})`);
+      if (group <= 0xffff && group !== 0x0000) {
         offset = 0;
       } else {
+        // console.log('detectDicomFormat: Invalid group');
         throw new Error('Invalid DICOM file format');
       }
-    } catch {
-      throw new Error('Invalid DICOM file format');
+    } catch (e) {
+       // console.log('detectDicomFormat: Catch', e);
+       throw new Error('Invalid DICOM file format');
     }
   }
 
-  // Read transfer syntax from meta information (if Part 10 file)
   if (isDicomPart10) {
     const metaView = new SafeDataView(buffer, offset);
     metaView.setEndianness(true); // Meta information is always little endian

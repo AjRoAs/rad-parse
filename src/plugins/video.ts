@@ -3,13 +3,27 @@
  * Supports MPEG-2, MPEG-4 AVC/H.264
  */
 
-import { PixelDataDecoder } from './codecs';
+import { PixelDataCodec } from './codecs';
 
-export class VideoDecoder implements PixelDataDecoder {
+export class VideoDecoder implements PixelDataCodec {
     name = 'video-adapter';
     priority = 10; // Fallback
 
-    constructor(private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>) {}
+    constructor(
+        private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>,
+        private externalEncoder?: (pixelData: Uint8Array, ts: string, w: number, h: number, s: number, b: number) => Promise<Uint8Array[]>
+    ) {}
+    
+    canEncode(transferSyntax: string): boolean {
+        // Assume symmetric support if encoder provided
+        return !!this.externalEncoder && this.canDecode(transferSyntax);
+    }
+    
+    async encode(pixelData: Uint8Array, transferSyntax: string, width: number, height: number, samples: number, bits: number): Promise<Uint8Array[]> {
+        if (!this.externalEncoder) throw new Error("Video encoder not configured.");
+        return this.externalEncoder(pixelData, transferSyntax, width, height, samples, bits);
+    }
+
 
     isSupported(): boolean {
         // Check for WebCodecs VideoDecoder support as a potential internal implementation

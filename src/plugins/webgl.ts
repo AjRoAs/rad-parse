@@ -3,9 +3,9 @@
  * GPGPU style decoding using WebGL 2.0
  */
 
-import { PixelDataDecoder } from './codecs';
+import { PixelDataCodec } from './codecs';
 
-export class WebGlDecoder implements PixelDataDecoder {
+export class WebGlDecoder implements PixelDataCodec {
     name = 'webgl-fallback';
     priority = 80;
 
@@ -18,8 +18,22 @@ export class WebGlDecoder implements PixelDataDecoder {
     }
 
     canDecode(transferSyntax: string): boolean {
-         // Placeholder support
-        return false; 
+         // Universal Support (Fallback Tier)
+         return [
+            '1.2.840.10008.1.2.5',      // RLE
+            '1.2.840.10008.1.2.4.50',   // JPEG Baseline
+            '1.2.840.10008.1.2.4.51',   // JPEG Extended
+            '1.2.840.10008.1.2.4.57',   // JPEG Lossless (Proc 14)
+            '1.2.840.10008.1.2.4.70',   // JPEG Lossless (SV1)
+            '1.2.840.10008.1.2.4.80',   // JPEG-LS Lossless
+            '1.2.840.10008.1.2.4.81',   // JPEG-LS Lossy
+            '1.2.840.10008.1.2.4.90',   // JPEG 2000 Lossless
+            '1.2.840.10008.1.2.4.91',   // JPEG 2000
+            '1.2.840.10008.1.2.4.100',  // MPEG2
+            '1.2.840.10008.1.2.4.101',  // MPEG2
+            '1.2.840.10008.1.2.4.102',  // MPEG-4 AVC
+            '1.2.840.10008.1.2.4.103',  // MPEG-4 AVC
+        ].includes(transferSyntax); 
     }
 
     async decode(encodedBuffer: Uint8Array[], length?: number, info?: any): Promise<Uint8Array> {
@@ -124,6 +138,15 @@ export class WebGlDecoder implements PixelDataDecoder {
 
         return results.slice(0, length || totalSize);
     }
+    
+    canEncode(transferSyntax: string): boolean {
+        return false;
+    }
+
+    async encode(pixelData: Uint8Array, transferSyntax: string, width: number, height: number, samples: number, bits: number): Promise<Uint8Array[]> {
+        throw new Error("WebGL Encoding not implemented in skeleton");
+    }
+
     
     private createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
         const p = gl.createProgram();

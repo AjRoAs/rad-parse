@@ -3,13 +3,26 @@
  * Transfer Syntaxes: 1.2.840.10008.1.2.4.80 (Lossless), 1.2.840.10008.1.2.4.81 (Near-lossless)
  */
 
-import { PixelDataDecoder } from './codecs';
+import { PixelDataCodec } from './codecs';
 
-export class JpegLsDecoder implements PixelDataDecoder {
+export class JpegLsDecoder implements PixelDataCodec {
     name = 'jpegls-adapter';
     priority = 20;
 
-    constructor(private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>) {}
+    constructor(
+        private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>,
+        private externalEncoder?: (pixelData: Uint8Array, ts: string, w: number, h: number, s: number, b: number) => Promise<Uint8Array[]>
+    ) {}
+
+    canEncode(transferSyntax: string): boolean {
+        return !!this.externalEncoder && this.canDecode(transferSyntax);
+    }
+    
+    async encode(pixelData: Uint8Array, transferSyntax: string, width: number, height: number, samples: number, bits: number): Promise<Uint8Array[]> {
+        if (!this.externalEncoder) throw new Error("JPEG-LS encoder not configured.");
+        return this.externalEncoder(pixelData, transferSyntax, width, height, samples, bits);
+    }
+
 
     isSupported(): boolean {
         return !!this.externalDecoder;

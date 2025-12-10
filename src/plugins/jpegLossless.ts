@@ -3,13 +3,26 @@
  * Transfer Syntaxes: 1.2.840.10008.1.2.4.57 (Process 14), 1.2.840.10008.1.2.4.70 (Process 14 SV1)
  */
 
-import { PixelDataDecoder } from './codecs';
+import { PixelDataCodec } from './codecs';
 
-export class JpegLosslessDecoder implements PixelDataDecoder {
+export class JpegLosslessDecoder implements PixelDataCodec {
     name = 'jpeglossless-adapter';
     priority = 10; // Fallback
 
-    constructor(private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>) {}
+    constructor(
+        private externalDecoder?: (buffer: Uint8Array) => Promise<Uint8Array>,
+        private externalEncoder?: (pixelData: Uint8Array, ts: string, w: number, h: number, s: number, b: number) => Promise<Uint8Array[]>
+    ) {}
+
+    canEncode(transferSyntax: string): boolean {
+        return !!this.externalEncoder && this.canDecode(transferSyntax);
+    }
+
+    async encode(pixelData: Uint8Array, transferSyntax: string, width: number, height: number, samples: number, bits: number): Promise<Uint8Array[]> {
+        if (!this.externalEncoder) throw new Error("JPEG Lossless encoder not configured.");
+        return this.externalEncoder(pixelData, transferSyntax, width, height, samples, bits);
+    }
+
 
     isSupported(): boolean {
         // Supported if external decoder provided or (future) pure JS implementation added

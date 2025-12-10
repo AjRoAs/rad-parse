@@ -144,18 +144,36 @@ export class StreamingParser {
    * Process a chunk of data
    */
   processChunk(chunk: Uint8Array): void {
-    if (!this.state.initialized) {
-      this.initialize(chunk);
-      return;
-    }
-
-    // Append chunk to buffer
+    // Append chunk to buffer immediately
     const newBuffer = new Uint8Array(this.state.buffer.length + chunk.length);
     newBuffer.set(this.state.buffer);
     newBuffer.set(chunk, this.state.buffer.length);
     this.state.buffer = newBuffer;
 
-    // Process elements
+    if (!this.state.initialized) {
+      // Wait for at least 132 bytes to check for DICM preamble
+      // If we have less, we can't determine if it's Part 10 or not reliably.
+      // Exception: If we decide to support non-Part 10 streams without preamble, 
+      // we might need a flag or heuristically wait.
+      // For now, we wait for 132 bytes.
+      if (this.state.buffer.length < 132) {
+        return;
+      }
+      
+      // We have enough data, initialize using the accumulated buffer
+      // Note: initialize() expects a 'chunk' but mainly uses it to set buffer.
+      // Since we already updated state.buffer, initialize should rely on that or we pass state.buffer.
+      // But initialize overwrites state.buffer = chunk.
+      // So we pass the FULL buffer to initialize.
+      this.initialize(this.state.buffer);
+      
+      // initialize() sets state.buffer = chunk. So it's consistent.
+      // Now process elements in the buffer
+      this.processElements();
+      return;
+    }
+
+    // Already initialized and buffer updated. Process elements.
     this.processElements();
   }
 
@@ -164,7 +182,13 @@ export class StreamingParser {
    */
   finalize(): void {
     if (!this.state.initialized) {
-      return;
+        // If we haven't initialized yet (e.g. data < 132 bytes total), 
+        // we must force init now to parse what we have (e.g. valid small non-Part 10 file).
+        if (this.state.buffer.length > 0) {
+            this.initialize(this.state.buffer);
+            this.processElements(true);
+        }
+        return;
     }
 
     // Process any remaining elements
@@ -218,8 +242,9 @@ export class StreamingParser {
           this.options.onElement(element);
         }
 
-        // Update offset (relative to buffer start)
-        this.state.offset += view.getPosition();
+        // NOTE: We update offset ONLY AFTER the loop or batch.
+        // But doing it here (cumulatively) was the bug.
+        // We do NOT update this.state.offset here.
       } catch (error) {
         if (this.options.onError) {
           this.options.onError(
@@ -229,6 +254,10 @@ export class StreamingParser {
         break;
       }
     }
+    
+    // Update offset by the total amount consumed in this batch
+    // view.getPosition() is the total bytes consumed by all parseElement calls in this batch.
+    this.state.offset += view.getPosition();
   }
 
   /**
@@ -417,11 +446,17 @@ export class StreamingParser {
     }
 
     // Create element with both uppercase and lowercase keys
+    // Normalize value to array if needed (to match standard parser behavior)
+    let normalizedValue = value;
+    if (value !== undefined && !(value instanceof Uint8Array) && !Array.isArray(value)) {
+      normalizedValue = [value];
+    }
+
     const elementData: DicomElement = {
       vr,
       VR: vr,
-      Value: value,
-      value: value,
+      Value: normalizedValue as Array<string | number> | Record<string, unknown> | Uint8Array | undefined,
+      value: normalizedValue as Array<string | number> | Record<string, unknown> | Uint8Array | undefined,
       length: length,
       Length: length,
       items: undefined,
@@ -621,4 +656,3 @@ export async function parseFromAsyncIterator(
     throw error;
   }
 }
-

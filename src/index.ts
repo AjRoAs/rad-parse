@@ -52,11 +52,14 @@ export {
 } from './utils/valueParsers';
 export { detectVR, detectVRForPrivateTag, requiresExplicitLength } from './utils/vrDetection';
 // Codecs & Plugins
-export { registry, type PixelDataDecoder } from './plugins/codecs';
-export { RleDecoder } from './plugins/rle';
-export { BrowserImageDecoder } from './plugins/browser';
+// Codecs & Plugins
+export { registry, type PixelDataCodec } from './plugins/codecs';
+export { RleCodec } from './plugins/rle';
+export { BrowserImageCodec } from './plugins/browser';
 export { WebGpuDecoder } from './plugins/webgpu';
 export { WebGlDecoder } from './plugins/webgl';
 export { Jpeg2000Decoder } from './plugins/jpeg2000';
 export { JpegLsDecoder } from './plugins/jpegls';
+export { JpegLosslessDecoder } from './plugins/jpegLossless';
+export { VideoDecoder } from './plugins/video';
 
