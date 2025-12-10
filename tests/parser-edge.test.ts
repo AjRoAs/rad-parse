@@ -54,9 +54,7 @@ describe('Parser Edge Cases', () => {
     it('should extract syntax from Part 10 file', () => {
         const buffer = createDicomBuffer();
         const syntax = extractTransferSyntax(buffer);
-        // Using boolean check to avoid weird assertion error artifacts
-        const expected = '1.2.840.10008.1.2.1';
-        expect(syntax === expected).toBe(true);
+        expect(syntax).toEqual('1.2.840.10008.1.2.1');
     });
 
     it('should return undefined if file is too small', () => {
@@ -99,10 +97,7 @@ describe('Parser Edge Cases', () => {
 
          const result = parseWithMetadata(buffer);
          expect(result.dataset.dict['x00100010']).toBeDefined();
-         
-         // Assert TS via boolean
-         const expectedTS = '1.2.840.10008.1.2.1'; 
-         expect(result.transferSyntax === expectedTS).toBe(true);
+         expect(result.transferSyntax).toEqual('1.2.840.10008.1.2.1'); 
          
          const val = result.dataset.dict['x00100010'].Value;
          expect(val).toMatchObject({ Alphanumeric: 'Test^Patient' });

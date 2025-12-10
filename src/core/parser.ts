@@ -396,7 +396,7 @@ function readMetaInformation(metaView: SafeDataView): {
       } else {
         tsLength = metaView.readUint16();
       }
-      result.transferSyntax = metaView.readString(tsLength).trim();
+      result.transferSyntax = metaView.readString(tsLength).replace(/\u0000/g, '').trim();
     } else if (tsGroup === 0x0002) {
       // Still in meta information group, skip this element
       const tsVrBytes = metaView.readBytes(2);
