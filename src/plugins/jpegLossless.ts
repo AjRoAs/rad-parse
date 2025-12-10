@@ -25,7 +25,6 @@ export class JpegLosslessDecoder implements PixelDataCodec {
 
 
     isSupported(): boolean {
-        // Supported if external decoder provided or (future) pure JS implementation added
         return !!this.externalDecoder;
     }
 

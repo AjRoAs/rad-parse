@@ -62,4 +62,7 @@ export { Jpeg2000Decoder } from './plugins/jpeg2000';
 export { JpegLsDecoder } from './plugins/jpegls';
 export { JpegLosslessDecoder } from './plugins/jpegLossless';
 export { VideoDecoder } from './plugins/video';
+export { NodePngEncoder } from './plugins/png';
+export { JpegLosslessNativeDecoder } from './plugins/jpegLosslessNative';
+export { AutoDetectCodec } from './plugins/autodetect';
 

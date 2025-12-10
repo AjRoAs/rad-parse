@@ -771,6 +771,8 @@ export function parse(byteArray: Uint8Array, options: UnifiedParseOptions = {}):
       };
       // We can call parseWithMetadata directly
       const res = parseWithMetadata(byteArray, parseOpts);
+      if (res.transferSyntax) res.dataset.transferSyntax = res.transferSyntax;
+      if (res.characterSet) res.dataset.characterSet = res.characterSet;
       return res.dataset;
       
     case 'shallow':
@@ -1084,7 +1086,7 @@ export function extractPixelData(byteArray: Uint8Array): PixelDataInfo | null {
   } catch {
      return null;
   }
-
+  
   view.setEndianness(detection.littleEndian);
   view.setPosition(detection.offset);
 
@@ -1099,6 +1101,9 @@ export function extractPixelData(byteArray: Uint8Array): PixelDataInfo | null {
     // Read tag
     const group = view.readUint16();
     const element = view.readUint16();
+    
+    // Debug log for Pixel Data Tag Search (limit output?)
+    // if (group === 0x7fe0) console.log(`[ParserDebug] Found group 7FE0, Element: ${element.toString(16)}`);
 
      // Check for sequence/item delimiters
     if (group === 0xfffe) {
@@ -1227,11 +1232,55 @@ function parseElementValue(
     return tags;
   }
 
+  // Numeric Binary VRs (US, SS, UL, SL, FL, FD, AT handled above)
+  if (vr === 'US') {
+      const count = length / 2;
+      if (count <= 1) return view.readUint16();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readUint16());
+      return vals;
+  }
+  if (vr === 'SS') {
+      const count = length / 2;
+      if (count <= 1) return view.readInt16();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readInt16());
+      return vals;
+  }
+  if (vr === 'UL') {
+      const count = length / 4;
+      if (count <= 1) return view.readUint32();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readUint32());
+      return vals;
+  }
+  if (vr === 'SL') {
+      const count = length / 4;
+      if (count <= 1) return view.readInt32();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readInt32());
+      return vals;
+  }
+  if (vr === 'FL') {
+      const count = length / 4;
+      if (count <= 1) return view.readFloat32();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readFloat32());
+      return vals;
+  }
+  if (vr === 'FD') {
+      const count = length / 8;
+      if (count <= 1) return view.readFloat64();
+      const vals = [];
+      for(let i=0; i<count; i++) vals.push(view.readFloat64());
+      return vals;
+  }
+
   // String-based VR
   const str = view.readString(length, characterSet);
 
   // Parse based on VR type
-  if (vr === 'IS' || vr === 'SL' || vr === 'SS' || vr === 'UL' || vr === 'US') {
+  if (vr === 'IS') {
     // Numeric types
     const parts = str.split('\\').filter(p => p.trim());
     if (parts.length === 1) {
@@ -1244,7 +1293,7 @@ function parseElementValue(
     });
   }
 
-  if (vr === 'DS' || vr === 'FL' || vr === 'FD') {
+  if (vr === 'DS') {
     // Floating point types
     const parts = str.split('\\').filter(p => p.trim());
     if (parts.length === 1) {

@@ -104,7 +104,7 @@ function extractEncapsulatedPixelData(
           const fragData = view.readBytes(fragLength);
           const fragArray = new Uint8Array(fragData);
           fragmentArrays.push(fragArray);
-          allFragments.push(...Array.from(fragData));
+          // allFragments.push(...Array.from(fragData)); // Caused stack overflow
           fragmentCount++;
         } else {
           // Not enough data - stop
@@ -121,12 +121,22 @@ function extractEncapsulatedPixelData(
       }
     }
 
-    if (fragments.length === 0 || allFragments.length === 0) {
+    // Check results
+    if (fragments.length === 0 && fragmentArrays.length === 0) {
       return null;
+    }
+    
+    // Combine fragments into one Uint8Array
+    const totalLength = fragmentArrays.reduce((acc, curr) => acc + curr.length, 0);
+    const combined = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const arr of fragmentArrays) {
+        combined.set(arr, offset);
+        offset += arr.length;
     }
 
     return {
-      pixelData: new Uint8Array(allFragments),
+      pixelData: combined,
       isEncapsulated: true,
       fragments: fragments,
       fragmentArrays: fragmentArrays,

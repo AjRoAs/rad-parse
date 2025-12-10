@@ -39,6 +39,10 @@ export class CodecRegistry {
         }
         return null;
     }
+
+    getCodecs(): PixelDataCodec[] {
+        return this.codecs;
+    }
 }
 
 export const registry = new CodecRegistry();

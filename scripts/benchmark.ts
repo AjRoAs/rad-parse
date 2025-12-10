@@ -313,6 +313,7 @@ async function runBenchmark(): Promise<void> {
   const possiblePaths = [
     join(projectRoot, 'test_data/patient/DICOM'),
     join(projectRoot, 'test_data/21197522-9_20251130013123Examenes/DICOM'),
+    join(projectRoot, 'test_data/examples'),
   ];
   
   let testDataPath: string | undefined;

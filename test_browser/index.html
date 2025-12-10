@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>RAD-Parser Browser Test</title>
+    </head>
+    <body>
+        <h1>RAD-Parser Codec Verification</h1>
+        <div
+            id="logs"
+            style="
+                font-family: monospace;
+                white-space: pre-wrap;
+                border: 1px solid #ccc;
+                padding: 10px;
+            "
+        ></div>
+        <div id="images"></div>
+
+        <script type="module">
+            import {
+                registry,
+                WebGlDecoder,
+                WebGpuDecoder,
+                BrowserImageCodec,
+                RleCodec,
+            } from "../dist/rad-parser.js";
+
+            // Override console.log to display on page
+            const logDiv = document.getElementById("logs");
+            function log(msg) {
+                console.log(msg);
+                logDiv.innerText += msg + "\n";
+            }
+
+            async function runTests() {
+                log("Starting Tests...");
+
+                // 1. Check Hardware Codecs
+                const webgl = new WebGlDecoder();
+                const webgpu = new WebGpuDecoder();
+
+                log(`WebGlDecoder.name: ${webgl.name}`);
+                log(`WebGlDecoder.isSupported(): ${webgl.isSupported()}`);
+
+                log(`WebGpuDecoder.name: ${webgpu.name}`);
+                log(
+                    `WebGpuDecoder.isSupported(): ${await webgpu.isSupported()}`
+                ); // Note: WebGPU check might be async or sync depending on impl. Plugin says sync?
+
+                // 2. Check Browser Image Codec (JPG/PNG Encode)
+                const browserCodec = new BrowserImageCodec();
+                log(
+                    `BrowserImageCodec.isSupported(): ${browserCodec.isSupported()}`
+                );
+
+                if (browserCodec.isSupported()) {
+                    // Generate dummy pixel data (Red Square)
+                    const width = 100;
+                    const height = 100;
+                    const pixels = new Uint8Array(width * height * 4); // RGBA
+                    for (let i = 0; i < width * height; i++) {
+                        pixels[i * 4] = 255; // R
+                        pixels[i * 4 + 1] = 0; // G
+                        pixels[i * 4 + 2] = 0; // B
+                        pixels[i * 4 + 3] = 255; // A
+                    }
+
+                    log(
+                        `Attempting Encode to JPG (transfer syntax 1.2.840.10008.1.2.4.50)...`
+                    );
+                    try {
+                        // This uses the 'encode' method of BrowserImageCodec which should use Canvas -> Blob
+                        const jpg = await browserCodec.encode(
+                            pixels,
+                            "1.2.840.10008.1.2.4.50",
+                            width,
+                            height,
+                            3,
+                            8
+                        );
+                        log(
+                            `JPG Encoded Success! Size: ${jpg[0].length} bytes`
+                        );
+
+                        // Display it
+                        const img = document.createElement("img");
+                        const blob = new Blob([jpg[0]], { type: "image/jpeg" });
+                        img.src = URL.createObjectURL(blob);
+                        document.getElementById("images").appendChild(img);
+                    } catch (e) {
+                        log(`JPG Encode Failed: ${e.message}`);
+                    }
+                }
+
+                log("Tests Completed.");
+            }
+
+            runTests().catch((e) => log(`Critical Error: ${e.message}`));
+        </script>
+    </body>
+</html>
