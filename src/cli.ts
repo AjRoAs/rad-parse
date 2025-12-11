@@ -1,14 +1,26 @@
 import * as fs from "fs";
 import * as path from "path";
-import { parse, write, anonymize, registry, formatTagWithComma } from "./index";
+import {
+    parse,
+    write,
+    anonymize,
+    registry,
+    formatTagWithComma,
+    parseAndDecode,
+    NodePngEncoder,
+    normalizeTag,
+} from "./index";
+
+// Manually register the PNG encoder for CLI use
+registry.register(new NodePngEncoder());
 
 const args = process.argv.slice(2);
 const command = args[0];
 
 async function run() {
-    if (!command) {
+    if (!command || ["help", "--help", "-h"].includes(command)) {
         printHelp();
-        process.exit(1);
+        process.exit(0);
     }
 
     switch (command) {
@@ -18,6 +30,14 @@ async function run() {
                 process.exit(1);
             }
             dumpFile(args[1]);
+            break;
+
+        case "get":
+            if (!args[1] || !args[2]) {
+                console.error("Usage: rad-parser get <file> <tag>");
+                process.exit(1);
+            }
+            getTag(args[1], args[2]);
             break;
 
         case "anonymize":
@@ -36,10 +56,14 @@ async function run() {
             await convertFile(args[1], args[2]);
             break;
 
-        case "help":
-        case "--help":
-        case "-h":
-            printHelp();
+        case "extract-image":
+            if (!args[1] || !args[2]) {
+                console.error(
+                    "Usage: rad-parser extract-image <input.dcm> <output.png>",
+                );
+                process.exit(1);
+            }
+            await extractImage(args[1], args[2]);
             break;
 
         default:
@@ -51,14 +75,102 @@ async function run() {
 
 function printHelp() {
     console.log(`
-rad-parser CLI v2.0.0
+rad-parser CLI v2.1.0
+
+A powerful command-line tool for inspecting, converting, and manipulating DICOM files.
 
 Commands:
-  dump <file>                  Parse and print DICOM tags from a file.
-  anonymize <input> [output]   Anonymize a DICOM file using Basic Application Level Confidentiality Profile.
-                               If output is omitted, defaults to <input>_anon.dcm.
-  convert <input> <output>     Convert/Rewrite a DICOM file (e.g. to Explicit VR Little Endian).
+  dump <file>                  Parse and print all DICOM tags from a file.
+  get <file> <tag>             Get the value of a specific DICOM tag. 
+                               Tag can be in format 'x00100010' or '0010,0010'.
+  anonymize <input> [output]   Anonymize a DICOM file. Defaults to '<input>_anon.dcm'.
+  convert <input> <output>     Convert a DICOM file to an uncompressed format.
+  extract-image <in> <out.png> Decode the pixel data and save it as a PNG image.
+  help, -h, --help             Show this help message.
     `);
+}
+
+function getTag(filePath: string, tag: string) {
+    try {
+        const buffer = fs.readFileSync(filePath);
+        const dataset = parse(new Uint8Array(buffer), {
+            type: "light",
+        }) as import("./core/types").DicomDataSet;
+        const normalizedTag = normalizeTag(tag);
+
+        const element = dataset.elements[normalizedTag];
+
+        if (element) {
+            console.log(
+                dataset.string(normalizedTag) || "[Binary or complex value]",
+            );
+        } else {
+            console.error(`Tag ${tag} not found in file.`);
+            process.exit(1);
+        }
+    } catch (e: any) {
+        console.error(`Error processing file: ${e.message}`);
+        process.exit(1);
+    }
+}
+
+async function extractImage(inputFile: string, outputFile: string) {
+    if (path.extname(outputFile).toLowerCase() !== ".png") {
+        console.error("Output file must have a .png extension.");
+        process.exit(1);
+    }
+
+    try {
+        console.log(`Reading and decoding ${inputFile}...`);
+        const buffer = fs.readFileSync(inputFile);
+        const dataset = await parseAndDecode(new Uint8Array(buffer));
+
+        const pixelDataElement = dataset.elements["x7fe00010"];
+        if (
+            !pixelDataElement ||
+            !(pixelDataElement.Value instanceof Uint8Array)
+        ) {
+            throw new Error("No decoded pixel data found in the file.");
+        }
+
+        const rawPixelData = pixelDataElement.Value;
+
+        const encodeOptions = {
+            width: dataset.uint16("x00280011") || 0,
+            height: dataset.uint16("x00280010") || 0,
+            samplesPerPixel: dataset.uint16("x00280002") || 1,
+            bitsAllocated: dataset.uint16("x00280100") || 8,
+        };
+
+        if (encodeOptions.width === 0 || encodeOptions.height === 0) {
+            throw new Error(
+                "Image dimensions (width/height) not found in DICOM file.",
+            );
+        }
+
+        console.log("Encoding image to PNG...");
+        const encoder = await registry.getEncoder("png");
+        if (!encoder || !encoder.encode) {
+            throw new Error(
+                "PNG encoder not available. Ensure you are in a Node.js environment.",
+            );
+        }
+
+        const pngFragments = await encoder.encode(
+            rawPixelData,
+            "png",
+            encodeOptions.width,
+            encodeOptions.height,
+            encodeOptions.samplesPerPixel,
+            encodeOptions.bitsAllocated,
+        );
+
+        fs.writeFileSync(outputFile, pngFragments[0]);
+        console.log(`Successfully saved image to ${outputFile}`);
+    } catch (e: any) {
+        console.error(`Error extracting image: ${e.message}`);
+        process.exit(1);
+    }
 }
 
 function dumpFile(filePath: string) {
@@ -82,10 +194,7 @@ function dumpFile(filePath: string) {
             // Format value for display
             if (value instanceof Uint8Array) {
                 value = `[Binary Data: ${value.length} bytes]`;
-            } else if (
-                value instanceof Uint8Array ||
-                (Array.isArray(value) && value[0] instanceof Uint8Array)
-            ) {
+            } else if (Array.isArray(value) && value[0] instanceof Uint8Array) {
                 value = `[Binary Data / Fragments]`;
             } else if (typeof value === "object" && value !== null) {
                 value = JSON.stringify(value);
@@ -140,66 +249,13 @@ async function convertFile(inputPath: string, outputPath: string) {
     try {
         const buffer = fs.readFileSync(inputPath);
         console.log(`Reading ${inputPath}...`);
-        const dataset = parse(new Uint8Array(buffer), {
-            type: "full",
-        }) as import("./core/types").DicomDataSet;
+        const dataset = await parseAndDecode(new Uint8Array(buffer));
 
-        // Let's implement robust Logic:
-        // 1. Get current Transfer Syntax
-        const transferSyntaxElement = dataset.dict["x00020010"];
-        const currentTs = transferSyntaxElement
-            ? (transferSyntaxElement.Value as string[])[0]
-            : "1.2.840.10008.1.2.1";
-        console.log(`Current Transfer Syntax: ${currentTs}`);
+        console.log("Transcoded to Uncompressed.");
 
-        // 2. Decode Pixel Data if compressed
-        const pixelParams = getPixelDataParams(dataset);
-
-        if (pixelParams && pixelParams.pixelData) {
-            const decoder = await registry.getDecoder(currentTs);
-            if (decoder) {
-                console.log(`Decoding using ${decoder.name}...`);
-
-                // Construct the info object for the decoder
-                const samplesPerPixelEl = dataset.dict["x00280002"];
-                const bitsAllocatedEl = dataset.dict["x00280100"];
-
-                const info = {
-                    transferSyntax: currentTs,
-                    samplesPerPixel:
-                        samplesPerPixelEl &&
-                        Array.isArray(samplesPerPixelEl.Value)
-                            ? (samplesPerPixelEl.Value[0] as number)
-                            : 1,
-                    bitsAllocated:
-                        bitsAllocatedEl && Array.isArray(bitsAllocatedEl.Value)
-                            ? (bitsAllocatedEl.Value[0] as number)
-                            : 8,
-                    // Add other relevant tags if needed by codecs
-                };
-
-                const raw = await decoder.decode(pixelParams.pixelData, info);
-                // 3. Re-Encode logic could go here
-
-                const targetTs = "1.2.840.10008.1.2.1"; // Explicit Little Endian
-
-                // Updating PixelData
-                dataset.dict["x7fe00010"].Value = raw;
-                dataset.dict["x7fe00010"].vr = "OW";
-                // Update Transfer Syntax
-                if (dataset.dict["x00020010"]) {
-                    dataset.dict["x00020010"].Value = [targetTs];
-                } else {
-                    // Add if missing (unlikely if valid dicom)
-                    dataset.dict["x00020010"] = { vr: "UI", Value: [targetTs] };
-                }
-                console.log(
-                    "Transcoded to Uncompressed (Explicit VR Little Endian)",
-                );
-            } else {
-                console.log("No decoder found or already uncompressed.");
-            }
-        }
+        // Re-write as Explicit VR Little Endian
+        const targetTs = "1.2.840.10008.1.2.1";
+        dataset.dict["x00020010"].Value = [targetTs];
 
         console.log(`Writing to ${outputPath}...`);
         const outBytes = write(dataset);
@@ -210,29 +266,6 @@ async function convertFile(inputPath: string, outputPath: string) {
         console.error(`Error converting file: ${e.message}`);
         process.exit(1);
     }
-}
-
-function getPixelDataParams(dataset: any) {
-    const el = dataset.dict["x7fe00010"];
-    if (!el || !el.Value) return null;
-    // Check if encapsulated
-    if (
-        Array.isArray(el.Value) &&
-        el.Value[0] instanceof Uint8Array &&
-        el.Value.length > 1
-    ) {
-        return { pixelData: el.Value };
-    }
-    if (
-        Array.isArray(el.Value) &&
-        el.Value[0] instanceof Uint8Array &&
-        el.Value.length === 1 &&
-        el.vr === "OB"
-    ) {
-        // Single fragment OW/OB
-        return { pixelData: el.Value as Uint8Array[] };
-    }
-    return null;
 }
 
 export { run };

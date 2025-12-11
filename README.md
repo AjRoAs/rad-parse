@@ -1,6 +1,8 @@
-# RAD-Parser
+# rad-parser
 
-**RAD-Parser** is a lightweight, performant, self-contained DICOM parser implementation with **zero external dependencies**. It is designed for safety, efficiency, and reliability in medical imaging applications or cloud-based pipelines where dependency bloat is a liability.
+**rad-parser** is a lightweight, performant, and self-contained DICOM parser for Node.js and browsers, built with TypeScript and with **zero external dependencies**.
+
+It is designed for safety, efficiency, and reliability in medical imaging applications, command-line utilities, and cloud-based pipelines where dependency bloat and performance are critical concerns.
 
 [![npm version](https://img.shields.io/npm/v/rad-parser.svg)](https://www.npmjs.com/package/rad-parser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -8,16 +10,13 @@
 
 ## Features
 
--   ✅ **Zero Dependencies**: Pure TypeScript/JavaScript implementation using only native APIs.
--   ✅ **Plugin System**: Extensible architecture for Pixel Data Codecs.
--   ✅ **Native Codecs**:
-    -   **RLE Lossless**: Full Decode & Encode (PackBits) in pure TS.
-    -   **PNG Export**: Native Node.js encoder (via `zlib`) and Browser encoder (via `<canvas>`).
-    -   **JPEG Lossless (Shell)**: Native bitstream parser/sniffer.
--   ✅ **AutoDetect**: Smart codec routing and content sniffing.
--   ✅ **Serialization**: Write/Convert DICOM files (Explicit VR Little Endian).
--   ✅ **Anonymization**: Built-in anonymization utilities.
--   ✅ **Safe & Performant**: Efficient binary parsing with strict bounds checking.
+-   ✅ **Zero Dependencies**: Pure TypeScript/JavaScript implementation.
+-   ✅ **Extensive Format Support**: Handles Explicit/Implicit VR, Big/Little Endian, and all standard VR types.
+-   ✅ **Automatic Codec Loading**: Compressed images (RLE, JPEG, JPEG 2000, etc.) are decoded on-demand with no extra setup.
+-   ✅ **Extensible Codec System**: "Adapter" classes allow you to integrate your own decoders (e.g., from a WebAssembly library like OpenJPEG or CharLS).
+-   ✅ **DICOM Manipulation**: Includes utilities to `anonymize` datasets and `write` them back to a file buffer.
+-   ✅ **Powerful CLI**: A built-in command-line interface for common DICOM operations.
+-   ✅ **Safe & Performant**: Designed for efficient binary parsing with strict bounds checking.
 
 ## Installation
 
@@ -25,86 +24,109 @@
 npm install rad-parser
 ```
 
-## Usage
+---
 
-### 1. Basic Parsing (Metadata Only)
+## Command-Line Interface (CLI)
 
-```typescript
-import { parse } from "rad-parser";
+`rad-parser` includes a powerful CLI for quick inspection and manipulation of DICOM files directly from your terminal.
 
-const dataset = parse(byteArray);
+### **Commands**
 
-// string access
-const name = dataset.string("x00100010"); // PatientName
-console.log(`Patient: ${name}`);
+| Command                        | Description                                                  |
+| :----------------------------- | :----------------------------------------------------------- |
+| `dump <file>`                  | Parse and print all tags from a DICOM file.                  |
+| `get <file> <tag>`             | Get the value of a single DICOM tag.                         |
+| `anonymize <in> [out]`         | Anonymize a DICOM file.                                      |
+| `convert <in> <out>`           | Convert a DICOM file to an uncompressed format.              |
+| `extract-image <in> <out.png>` | Decode pixel data and save it as a PNG image.                |
+| `help`                         | Show the help message.                                       |
 
-// direct element access
-const element = dataset.dict["x00100010"];
-console.log(element.Value);
+### **CLI Examples**
+
+**1. Dump all tags from a file:**
+```bash
+npx rad-parser dump "path/to/your/file.dcm"
 ```
 
-### 2. Pixel Data & Plugins (The "Full Power" Mode)
+**2. Get a specific tag's value (e.g., Patient's Name):**
+```bash
+npx rad-parser get "path/to/your/file.dcm" "0010,0010"
+# Output: Doe^John
+```
 
-To handle compressed pixel data (RLE, JPEG, etc.), you must register the desired codecs. This modular approach keeps the core lightweight.
+**3. Anonymize a file:**
+```bash
+# Output will be saved to 'original_anon.dcm'
+npx rad-parser anonymize "original.dcm"
+```
+
+**4. Extract the embedded image as a PNG:**
+```bash
+npx rad-parser extract-image "compressed_image.dcm" "image_out.png"
+```
+
+---
+
+## Library Usage
+
+### **Example 1: Basic Parsing (Metadata Only)**
+
+Use the `light` parse type to quickly read all tags without loading the bulky pixel data.
 
 ```typescript
-import {
-    parse,
-    registry,
-    AutoDetectCodec,
-    RleCodec,
-    NodePngEncoder
-} from "rad-parser";
+import * as fs from 'fs';
+import { parse } from 'rad-parser';
 
-// 1. Register Plugins (Mix & Match)
-// AutoDetect uses Priority 1000 to intercept and route calls
-registry.register(new AutoDetectCodec());
-registry.register(new RleCodec());
-registry.register(new NodePngEncoder());
+const dicomBytes = new Uint8Array(fs.readFileSync('test.dcm'));
 
-// 2. Parse & Extract
-const dataset = parse(u8Buffer);
-const pixels = await dataset.extractPixelData(); // Helper or manual usage check
+// Use { type: 'light' } to skip pixel data value
+const dataset = parse(dicomBytes, { type: 'light' });
 
-if (pixels.isEncapsulated) {
-    // 3. Decode via Registry (AutoDetect will handle routing)
-    const decoder = await registry.getDecoder(dataset.transferSyntax);
-    if (decoder) {
-        const decodedFrame = await decoder.decode(pixels.fragments, 0, {
-            transferSyntax: dataset.transferSyntax,
-            rows: dataset.rows,
-            columns: dataset.columns
-        });
+const patientName = dataset.string('x00100010'); // Patient's Name
+const studyDate = dataset.string('x00080020');   // Study Date
 
-        // 4. Export to PNG (Zero-Dep Node.js native export)
-        const pngEncoder = await registry.getEncoder('png');
-        if (pngEncoder) {
-            const pngData = await pngEncoder.encode(decodedFrame, 'png', ...);
-            // fs.writeFileSync('output.png', pngData[0]);
-        }
-    }
+console.log(`Patient: ${patientName}, Study Date: ${studyDate}`);
+```
+
+### **Example 2: Automatic Image Decoding**
+
+Use the `parseAndDecode()` helper to automatically parse a file and decompress the pixel data.
+
+```typescript
+import * as fs from 'fs';
+import { parseAndDecode } from 'rad-parser';
+
+async function getRawPixels(filePath: string) {
+    const dicomBytes = new Uint8Array(fs.readFileSync(filePath));
+
+    // This function parses the file AND decodes the pixel data
+    const dataset = await parseAndDecode(dicomBytes);
+
+    const pixelDataElement = dataset.elements['x7fe00010'];
+    const rawPixelData = pixelDataElement.Value as Uint8Array;
+
+    console.log(`Decoded pixel data size: ${rawPixelData.length} bytes`);
+    return rawPixelData;
 }
 ```
 
-## Plugin Architecture
+### **Example 3: Manual Codec Integration (Advanced)**
 
-RAD-Parser uses a **Registry-based Plugin System**. Codecs are registered at runtime, allowing you to choose between Native (Pure JS) implementations or Adapters (External Libs).
+For custom decoders (e.g., a proprietary compression format or a specific WASM library), you can register a configured codec.
 
-### Supported Codecs
+```typescript
+import { registry, Jpeg2000Decoder, parseAndDecode } from 'rad-parser';
+import myCustomJ2kDecoder from './my-custom-j2k-decoder';
 
-| Codec             | Implementation       | Decode Status         | Encode Status         | Notes                                       |
-| ----------------- | -------------------- | --------------------- | --------------------- | ------------------------------------------- |
-| **RLE**           | Pure TypeScript      | ✅ **Native**         | ✅ **Native**         | Full support (PackBits).                    |
-| **PNG**           | Node `zlib` / Canvas | N/A                   | ✅ **Native**         | Export format.                              |
-| **AutoDetect**    | Smart Router         | ✅ **Active**         | N/A                   | Sniffs content / Magic Bytes.               |
-| **JPEG 2000**     | Adapter              | ⚠️ Requires Injection | ⚠️ Requires Injection | Use `jpeg2000-js` or OpenJPEG.              |
-| **JPEG-LS**       | Adapter              | ⚠️ Requires Injection | ⚠️ Requires Injection | Use `charls-js`.                            |
-| **JPEG Lossless** | Native Shell         | ✅ Sniffs Headers     | ❌                    | Parses structure, needs decoder for pixels. |
+// 1. Instantiate the adapter with your external decode function
+const customCodec = new Jpeg2000Decoder(myCustomJ2kDecoder);
 
-### Output Formats
+// 2. Register it with a high priority
+registry.register(customCodec);
 
--   **Node.js**: BMP, PNG (Native), RLE, RAW.
--   **Browser**: BMP, PNG/JPG (Native Canvas), RLE, RAW.
+// 3. Now, parseAndDecode will use your custom codec for JPEG 2000 files
+// const dataset = await parseAndDecode(dicomBytes);
+```
 
 ## Library Comparison & Ecosystem
 
@@ -139,13 +161,6 @@ A head-to-head comparison of capabilities, ecosystem, and performance.
 | **Maintenance**          |    ✅ **Active**     |   ✅ Active   |    ⚠️ Slow     |    ⚠️ Slow     |
 | **License**              |      ✅ **MIT**      |    ✅ MIT     |     ✅ MIT     |     ✅ MIT     |
 
-### Ecosystem Deep Dive
-
--   **rad-parser**: Best for **High-Performance Pipelines**, **Cloud Functions**, and **Safe Parsing** where you need strict TypeScript types, zero dependencies, and the ability to route Compressed Pixel Data dynamically. The **Plugin System** allows you to keep the core tiny and only load decoders (like WebAssembly builds of OpenJPEG) if actually needed.
--   **dcmjs**: Excellent for **Structured Reporting (SR)** and working with the specific JSON format it popularized. It bundles many dependencies, making it heavier but feature-rich for high-level DICOM concepts.
--   **dicom-parser**: The veteran standard. Extremely fast and lightweight for **parsing only**. However, it lacks Writing, Anonymization, and Plugin support, limiting its use to read-only scenarios.
--   **efferent-dicom**: A solid alternative but slower in benchmarks.
-
 ## Performance Benchmark
 
 Results from parsing 50 DICOM files (Medical Imaging Dataset):
@@ -160,34 +175,11 @@ Results from parsing 50 DICOM files (Medical Imaging Dataset):
 
 _Note: `rad-parser-shallow` is optimized for rapid indexing, routing, and header extraction scenarios._
 
-## CLI Usage
+## Full Documentation
+For a deep dive into the library's features, including advanced codec registration, encoding examples, and handling encapsulated data like PDFs and ECGs, please see our **[Full API Documentation](./docs/api.md)**.
 
-rad-parser comes with a built-in CLI for common operations:
+---
 
-```bash
-# Dump tags
-npx rad-parser dump file.dcm
+## License
 
-# Anonymize file
-npx rad-parser anonymize input.dcm output_anon.dcm
-```
-
-## Architecture (v2.0.0)
-
--   `src/core`: Main logic (parser, writer, anonymizer).
--   `src/plugins`: The Plugin Ecosystem.
--   `src/utils`: Helpers (dictionary, validation).
-
-## Security & Dependencies
-
-RAD-Parser is strictly **Zero Dependency** for its core functionalities.
-
--   **Node.js**: Uses `zlib`, `fs` for native capabilities.
--   **Browser**: Uses `TextDecoder`, `ImageDecoder` (WebCodecs), `Canvas`.
--   **External Codecs**: You must explicitly "bring your own library" for J2K/J-LS if needed. The Adapter classes (`Jpeg2000Decoder` etc.) provide the standard interface to plug them in.
-
-## Contributing
-
-1. Keep Core dependency-free.
-2. Extensions go in `src/plugins`.
-3. Verify with `npm test`.
+`rad-parser` is licensed under the MIT License.
