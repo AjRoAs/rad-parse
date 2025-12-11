@@ -27,6 +27,77 @@ type DynamicCodecLoader = () => Promise<{
     [key: string]: new () => PixelDataCodec;
 }>;
 
+export interface FunctionalCodecConfig {
+    name: string;
+    transferSyntaxes: string[];
+    priority: number;
+    isSupported?: () => Promise<boolean> | boolean;
+    decode: (encodedBuffer: Uint8Array[], info: any) => Promise<Uint8Array>;
+    encode?: (
+        pixelData: Uint8Array,
+        transferSyntax: string,
+        width: number,
+        height: number,
+        samples: number,
+        bits: number,
+    ) => Promise<Uint8Array[]>;
+    codecInfo?: CodecInfo;
+}
+
+/**
+ * A wrapper class to allow registering codecs from simple functions
+ * without needing to define a full class structure.
+ */
+class FunctionalCodec implements PixelDataCodec {
+    name: string;
+    priority: number;
+    codecInfo: CodecInfo;
+    private transferSyntaxes: string[];
+    private isSupportedFn: () => Promise<boolean> | boolean;
+    private decodeFn: (
+        encodedBuffer: Uint8Array[],
+        info: any,
+    ) => Promise<Uint8Array>;
+    private encodeFn?: (
+        pixelData: Uint8Array,
+        transferSyntax: string,
+        width: number,
+        height: number,
+        samples: number,
+        bits: number,
+    ) => Promise<Uint8Array[]>;
+
+    constructor(config: FunctionalCodecConfig) {
+        this.name = config.name;
+        this.priority = config.priority;
+        this.transferSyntaxes = config.transferSyntaxes;
+        this.decodeFn = config.decode;
+        this.encodeFn = config.encode;
+        this.isSupportedFn = config.isSupported || (() => true);
+        this.codecInfo = config.codecInfo || { multiFrame: false };
+    }
+
+    isSupported = () => this.isSupportedFn();
+    canDecode = (ts: string) => this.transferSyntaxes.includes(ts);
+    decode = (buf: Uint8Array[], info: any) => this.decodeFn(buf, info);
+
+    canEncode = (ts: string) =>
+        !!this.encodeFn && this.transferSyntaxes.includes(ts);
+    encode = (
+        pixelData: Uint8Array,
+        ts: string,
+        w: number,
+        h: number,
+        s: number,
+        b: number,
+    ) => {
+        if (!this.encodeFn) {
+            throw new Error(`Encoding not supported by codec: ${this.name}`);
+        }
+        return this.encodeFn(pixelData, ts, w, h, s, b);
+    };
+}
+
 export class CodecRegistry {
     private codecs: PixelDataCodec[] = [];
     private dynamicCodecs: Map<string, DynamicCodecLoader> = new Map();
@@ -43,6 +114,16 @@ export class CodecRegistry {
 
     registerDynamic(transferSyntax: string, loader: DynamicCodecLoader) {
         this.dynamicCodecs.set(transferSyntax, loader);
+    }
+
+    /**
+     * Registers a codec using a configuration object and functions,
+     * avoiding the need to create a dedicated class.
+     * @param config - The codec configuration.
+     */
+    registerFunctional(config: FunctionalCodecConfig) {
+        const codec = new FunctionalCodec(config);
+        this.register(codec);
     }
 
     async getDecoder(transferSyntax: string): Promise<PixelDataCodec | null> {

@@ -22,6 +22,7 @@ export {
     canParse,
     parseWithMetadata,
     parse, // Unified API
+    parseAndDecode,
     type ParseResult,
     type ParseOptions,
     type UnifiedParseOptions,
@@ -70,8 +71,11 @@ export {
     requiresExplicitLength,
 } from "./utils/vrDetection";
 // Codecs & Plugins
-// Codecs & Plugins
-export { registry, type PixelDataCodec } from "./plugins/codecs";
+export {
+    registry,
+    type PixelDataCodec,
+    type FunctionalCodecConfig,
+} from "./plugins/codecs";
 export { RleCodec } from "./plugins/rle";
 export { BrowserImageCodec } from "./plugins/browser";
 export { WebGpuDecoder } from "./plugins/webgpu";
@@ -83,6 +87,9 @@ export { VideoDecoder } from "./plugins/video";
 export { NodePngEncoder } from "./plugins/png";
 export { JpegLosslessNativeDecoder } from "./plugins/jpegLosslessNative";
 export { AutoDetectCodec } from "./plugins/autodetect";
+
+// New helper functions
+export { decodePixelData, encodePixelData } from "./core/codec-helpers";
 
 // Initialize dynamic codec registration
 import "./plugins/auto-register";

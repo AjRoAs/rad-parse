@@ -38,31 +38,40 @@ parse(byteArray: Uint8Array, options?: UnifiedParseOptions): DicomDataSet | Shal
         *   `'light'`: Parses all tags and decodes their values, but **skips** the bulky pixel data value (`7FE0,0010`). This is useful when you only need metadata.
         *   `'shallow'`: Performs the fastest parse. It reads only the tag information (group, element, VR, length, data offset) but does **not** read the values. The returned `ShallowDicomDataSet` is a map of tags to their metadata, without the `Value` property.
 
-#### **Example: Basic Parsing**
+### `parseAndDecode()`
 
-This example demonstrates how to read a DICOM file from disk and parse its metadata.
+A convenience function that fully parses a DICOM file and automatically decodes the pixel data if a compatible codec is available.
+
+```typescript
+async parseAndDecode(byteArray: Uint8Array, options?: UnifiedParseOptions): Promise<DicomDataSet>
+```
+
+This function is equivalent to calling `parse()`, checking for compressed pixel data, and then calling a decoder. It returns a `DicomDataSet` where the `(7FE0,0010)` element's `Value` is the uncompressed pixel data buffer.
+
+#### **Example: Basic Parsing and Decoding**
 
 ```typescript
 import * as fs from 'fs';
-import { parse } from 'rad-parser';
+import { parseAndDecode } from 'rad-parser';
 
-// NOTE: This example assumes you have a 'test.dcm' file.
+// This example assumes you have a compressed DICOM file (e.g., RLE)
+// and the necessary codecs are available.
 try {
-    const dicomBuffer = fs.readFileSync('test.dcm');
+    const dicomBuffer = fs.readFileSync('compressed.dcm');
     const dicomBytes = new Uint8Array(dicomBuffer);
 
-    // Parse the file, getting all metadata but skipping the large pixel data
-    const dataset = parse(dicomBytes, { type: 'light' });
+    // Parse the file and automatically decode pixel data
+    const dataset = await parseAndDecode(dicomBytes);
 
-    if (dataset) {
-        const patientName = dataset.string('x00100010'); // (0010,0010)
-        const studyDate = dataset.string('x00080020');   // (0008,0020)
+    const patientName = dataset.string('x00100010');
+    const pixelDataElement = dataset.elements['x7fe00010'];
+    const rawPixelData = pixelDataElement.Value as Uint8Array;
 
-        console.log(`Patient Name: ${patientName}`);
-        console.log(`Study Date: ${studyDate}`);
-    }
+    console.log(`Patient Name: ${patientName}`);
+    console.log(`Decoded Pixel Data size: ${rawPixelData.length} bytes`);
+
 } catch (err) {
-    console.error(`Failed to parse DICOM file: ${err.message}`);
+    console.error(`Failed to parse and decode DICOM file: ${err.message}`);
 }
 ```
 
@@ -118,14 +127,54 @@ readStream.on('end', () => {
 
 ## Pixel Data & Codecs
 
-`rad-parser` uses a powerful codec system to handle compressed pixel data.
+`rad-parser` uses a powerful codec system to handle compressed pixel data. This system is centered around the global `registry`.
 
-For detailed examples of how to integrate third-party libraries like `openjpeg-js` and `charls-js`, see the **[Codec Integration Guide](./codec-examples.md)**.
+### Codec Registration and Usage
 
-### The Codec System
+*   **Automatic Loading:** For common transfer syntaxes (like RLE, JPEG, JPEG 2000), `rad-parser` automatically attempts to load the correct decoder on demand. For most use cases, you don't need to do anything.
+*   **Adapter Pattern:** For formats requiring large external libraries (e.g., JPEG 2000), `rad-parser` provides "adapter" classes. You can manually register a configured instance of these adapters to use your own decoder.
+*   **Functional Registration:** For maximum flexibility, you can register a codec directly from a configuration object without creating a class.
 
-*   **Automatic Loading:** For common transfer syntaxes (like RLE, JPEG, JPEG 2000), `rad-parser` automatically attempts to load the correct decoder on demand. You no longer need to manually register them.
-*   **Adapter Pattern:** For formats requiring large external libraries (e.g., JPEG 2000, JPEG-LS), `rad-parser` provides "adapter" classes. You can instantiate these with your own decoding function.
+For detailed examples of integrating third-party libraries like `openjpeg-js` and `charls-js`, see the **[Codec Integration Guide](./codec-examples.md)**.
+
+For examples of how to encode raw pixel data, see the **[Encoding Examples Guide](./encoding-examples.md)**.
+
+### `registry.registerFunctional()`
+
+This method allows you to register a custom codec without defining a full class.
+
+```typescript
+registry.registerFunctional(config: FunctionalCodecConfig)
+```
+
+**`FunctionalCodecConfig`:**
+
+*   `name` (string): A unique name for your codec.
+*   `transferSyntaxes` (string[]): An array of Transfer Syntax UIDs this codec can handle.
+*   `priority` (number): A number indicating the codec's priority. Higher numbers are tried first.
+*   `decode` (function): `async (fragments: Uint8Array[], info: any) => Promise<Uint8Array>` - The function that performs decoding.
+*   `encode?` (function): An optional function for encoding.
+*   `isSupported?` (function): An optional function that returns `true` if the codec can be used in the current environment.
+
+#### **Example: Registering a Functional Codec**
+```typescript
+import { registry, concatFragments } from 'rad-parser';
+
+// A simple (and incorrect) "decoder" that just concatenates fragments
+const dummyDecoder = async (fragments: Uint8Array[], info: any): Promise<Uint8Array> => {
+    console.log('Functional codec is running!');
+    return concatFragments(fragments);
+};
+
+registry.registerFunctional({
+    name: 'my-functional-codec',
+    transferSyntaxes: ['1.2.840.10008.1.2.4.91'], // Claim JPEG 2000
+    priority: 200, // High priority
+    decode: dummyDecoder
+});
+
+// Now, when a JPEG 2000 file is parsed, this functional codec will be used.
+```
 
 ### Available Codecs
 
@@ -145,62 +194,34 @@ The following table provides a summary of the codecs included with `rad-parser`.
 | **`NodePngEncoder`**        | Native (Node.js)         | `multiFrame: false`       | N/A (Encoder only)                                                                         | An **encoder** for creating PNG images from raw pixel data in a Node.js environment.        |
 | **`AutoDetectCodec`**       | Delegator                | `multiFrame: true`        | Claims all (highest priority)                                                              | Not a real codec; it inspects the data and delegates to the appropriate registered codec.   |
 
-#### **Example: Decoding Compressed Pixel Data**
+---
 
-This example shows how to handle a DICOM file with compressed pixel data, such as JPEG 2000.
+## Codec Helpers
+
+For cases where you need to perform decoding or encoding outside of the main `parse` workflow, these helper functions provide direct access to the codec registry.
+
+### `decodePixelData()`
+
+Decodes a compressed pixel data buffer using the best available registered codec.
 
 ```typescript
-import { parse, registry, Jpeg2000Decoder } from 'rad-parser';
-import * as fs from 'fs';
-// In a real project, you would import your WASM-based JPEG 2000 decoder
-// const openjpeg = await import('openjpeg-wasm');
+async decodePixelData(
+    transferSyntax: string,
+    fragments: Uint8Array[],
+    decodeOptions?: any
+): Promise<Uint8Array>
+```
 
-// Dummy external decoder function for demonstration
-async function dummyJpeg2000Decode(compressedBuffer: Uint8Array): Promise<Uint8Array> {
-    console.log(`"Decoding" ${compressedBuffer.length} bytes of JPEG 2000 data...`);
-    // In reality, this would return the raw, uncompressed pixel data
-    const fakePixelData = new Uint8Array(1024); // Placeholder
-    return fakePixelData;
-}
+### `encodePixelData()`
 
-async function decodeJ2kFile(filePath: string) {
-    const dicomBytes = new Uint8Array(fs.readFileSync(filePath));
-    const dataset = parse(dicomBytes, { type: 'full' });
+Encodes a raw pixel data buffer using a registered encoder.
 
-    const transferSyntax = dataset.string('x00020010'); // Get Transfer Syntax
-    if (!transferSyntax) {
-        throw new Error('Transfer Syntax not found');
-    }
-
-    // 1. Get a decoder. For JPEG 2000, this will be an adapter.
-    let decoder = await registry.getDecoder(transferSyntax);
-
-    if (decoder) {
-        // 2. If it's an adapter, it needs an external function.
-        // We can check its name to be sure.
-        if (decoder.name === 'jpeg2000-adapter') {
-            // Re-instantiate it with our chosen decoder implementation
-            decoder = new Jpeg2000Decoder(dummyJpeg2000Decode);
-        }
-        
-        // 3. The pixel data element's value will be the fragments
-        const pixelDataElement = dataset.elements['x7fe00010'];
-        const encodedFragments = pixelDataElement.Value as Uint8Array[];
-
-        // 4. Decode the fragments
-        const decodedPixelData = await decoder.decode(encodedFragments, {
-            // Pass metadata the codec might need
-            bitsAllocated: dataset.int('x00280100')
-        });
-
-        console.log(`Successfully decoded pixel data. Size: ${decodedPixelData.length} bytes.`);
-    } else {
-        console.log('No decoder registered for this transfer syntax, or data is uncompressed.');
-    }
-}
-
-// Example usage:
-// decodeJ2kFile('path/to/your/jpeg2000.dcm');
+```typescript
+async encodePixelData(
+    transferSyntax: string,
+    pixelData: Uint8Array,
+    encodeOptions: { width: number, height: number, ... }
+): Promise<Uint8Array[]>
 ```
 
 ---
