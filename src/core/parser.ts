@@ -1143,15 +1143,34 @@ function fastParse(
         if (!shouldInclude) {
             // Skip element (fast path)
             if (length === 0xffffffff) {
-                // Undefined length - fast skip to delimiter
+                // Undefined length - attempt to skip safely
                 while (view.getRemainingBytes() >= 8) {
+                    const loopStart = view.getPosition();
                     const g = view.readUint16();
                     const e = view.readUint16();
                     if (g === 0xfffe && e === 0xe0dd) {
                         view.readUint32();
                         break;
                     }
-                    view.setPosition(view.getPosition() - 4);
+                    if (g === 0xfffe && e === 0xe000) {
+                        // Item start - read length and skip
+                        if (view.getRemainingBytes() >= 4) {
+                            const itemLength = view.readUint32();
+                            const skip = Math.min(itemLength, view.getRemainingBytes());
+                            view.setPosition(view.getPosition() + skip);
+                        }
+                    } else {
+                        // Unknown block - advance by 2 bytes to avoid infinite loop
+                        if (view.getRemainingBytes() >= 2) {
+                            view.setPosition(view.getPosition() + 2);
+                        } else {
+                            break;
+                        }
+                    }
+                    // Ensure progress
+                    if (view.getPosition() <= loopStart) {
+                        break;
+                    }
                 }
             } else {
                 const newPos = view.getPosition() + length;
@@ -1175,15 +1194,33 @@ function fastParse(
 
         // Advance past value
         if (length === 0xffffffff) {
-            // Undefined length - fast skip
+            // Undefined length - fast skip with progress checks
             while (view.getRemainingBytes() >= 8) {
+                const loopStart = view.getPosition();
                 const g = view.readUint16();
                 const e = view.readUint16();
                 if (g === 0xfffe && e === 0xe0dd) {
                     view.readUint32();
                     break;
                 }
-                view.setPosition(view.getPosition() - 4);
+                if (g === 0xfffe && e === 0xe000) {
+                    // Item start - skip declared length
+                    if (view.getRemainingBytes() >= 4) {
+                        const itemLength = view.readUint32();
+                        const skip = Math.min(itemLength, view.getRemainingBytes());
+                        view.setPosition(view.getPosition() + skip);
+                    }
+                } else {
+                    // Unknown - advance minimally to avoid hang
+                    if (view.getRemainingBytes() >= 2) {
+                        view.setPosition(view.getPosition() + 2);
+                    } else {
+                        break;
+                    }
+                }
+                if (view.getPosition() <= loopStart) {
+                    break;
+                }
             }
         } else {
             const newPos = view.getPosition() + length;

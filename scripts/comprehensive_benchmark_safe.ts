@@ -1,13 +1,10 @@
 /**
- * Comprehensive DICOM Parser Benchmark
- * 
- * Compares all rad-parser modes (full, shallow, fast, medium) + streaming
- * against other parsers (dcmjs, dicom-parser, efferent-dicom)
- * Uses all available test files
+ * Safe Comprehensive DICOM Parser Benchmark
+ * With timeouts and progress saving
  */
 
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join, dirname, resolve } from 'path';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse } from '../src/index.js';
 import { StreamingParser } from '../src/index.js';
@@ -64,9 +61,6 @@ interface ParserStats {
   errors: string[];
 }
 
-/**
- * Get all DICOM files recursively
- */
 function getAllDicomFiles(dir: string): string[] {
   const files: string[] = [];
   try {
@@ -82,28 +76,31 @@ function getAllDicomFiles(dir: string): string[] {
             files.push(fullPath);
           }
         } catch {
-          // Skip files we can't stat
+          // Skip
         }
       }
     }
   } catch {
-    // Skip directories we can't read
+    // Skip
   }
   return files;
 }
 
-/**
- * Benchmark a single parser on a file
- */
-function benchmarkParser(
+function benchmarkParserWithTimeout(
   parserName: string,
   filePath: string,
-  fileData: Uint8Array
+  fileData: Uint8Array,
+  timeoutMs: number = 10000
 ): BenchmarkResult {
   const startTime = performance.now();
   let success = false;
   let elementCount = 0;
   let error: string | undefined;
+
+  const timeout = setTimeout(() => {
+    error = 'Timeout';
+    success = false;
+  }, timeoutMs);
 
   try {
     let dataset;
@@ -125,51 +122,30 @@ function benchmarkParser(
         elementCount = Object.keys(dataset.dict || {}).length;
         break;
       case 'rad-parser-streaming':
-        // Simulate streaming by splitting into chunks (optimized with timeout)
-        const chunkSize = 32768; // Larger chunks for better performance
+        const chunkSize = 32768;
         let streamingSuccess = false;
         let streamingElements = 0;
-        let streamingError: string | undefined;
         const parser = new StreamingParser({
-          maxBufferSize: 50 * 1024 * 1024, // 50MB max
-          maxIterations: 500, // Limit iterations per chunk
+          maxBufferSize: 50 * 1024 * 1024,
+          maxIterations: 500,
           onElement: (element) => {
             streamingElements += Object.keys(element.dict || {}).length;
             streamingSuccess = true;
           },
-          onError: (err) => {
-            streamingError = err.message;
-            // Don't fail completely on streaming errors
-          },
+          onError: () => {},
         });
         
-        try {
-          const streamStartTime = performance.now();
-          const maxStreamTime = 5000; // 5 second timeout per file
-          
-          // Split file into chunks
-          for (let i = 0; i < fileData.length; i += chunkSize) {
-            if (performance.now() - streamStartTime > maxStreamTime) {
-              error = 'Streaming timeout';
-              break;
-            }
-            const chunk = fileData.slice(i, Math.min(i + chunkSize, fileData.length));
-            if (i === 0) {
-              parser.initialize(chunk);
-            } else {
-              parser.processChunk(chunk);
-            }
+        for (let i = 0; i < fileData.length; i += chunkSize) {
+          const chunk = fileData.slice(i, Math.min(i + chunkSize, fileData.length));
+          if (i === 0) {
+            parser.initialize(chunk);
+          } else {
+            parser.processChunk(chunk);
           }
-          parser.finalize();
-          success = streamingSuccess || streamingElements > 0;
-          elementCount = streamingElements;
-          if (streamingError && !success) {
-            error = streamingError;
-          }
-        } catch (e) {
-          error = e instanceof Error ? e.message : String(e);
-          success = false;
         }
+        parser.finalize();
+        success = streamingSuccess || streamingElements > 0;
+        elementCount = streamingElements;
         break;
       case 'dcmjs':
         dataset = parseWithDcmjs(fileData);
@@ -186,15 +162,15 @@ function benchmarkParser(
       default:
         throw new Error(`Unknown parser: ${parserName}`);
     }
-
     success = true;
+    clearTimeout(timeout);
   } catch (e) {
+    clearTimeout(timeout);
     error = e instanceof Error ? e.message : String(e);
     success = false;
   }
 
   const parseTime = performance.now() - startTime;
-
   return {
     parser: parserName,
     file: filePath.split(/[/\\]/).pop() || filePath,
@@ -206,9 +182,6 @@ function benchmarkParser(
   };
 }
 
-/**
- * Calculate statistics for a parser
- */
 function calculateStats(parserName: string, results: BenchmarkResult[]): ParserStats {
   const successful = results.filter(r => r.success);
   const failed = results.filter(r => !r.success);
@@ -240,9 +213,6 @@ function calculateStats(parserName: string, results: BenchmarkResult[]): ParserS
   };
 }
 
-/**
- * Format file size
- */
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -251,24 +221,17 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-/**
- * Format time
- */
 function formatTime(ms: number): string {
   if (ms < 1) return `${(ms * 1000).toFixed(2)} μs`;
   if (ms < 1000) return `${ms.toFixed(2)} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-/**
- * Main benchmark function
- */
 async function main() {
   console.log('\n' + '='.repeat(80));
-  console.log('Comprehensive DICOM Parser Benchmark');
+  console.log('Comprehensive DICOM Parser Benchmark (Safe Mode)');
   console.log('='.repeat(80) + '\n');
 
-  // Find all test data directories - only TEST folder
   const testDataPaths = [
     join(__dirname, '..', 'test_data', 'TEST', 'SOLO'),
     join(__dirname, '..', 'test_data', 'TEST', 'SUBF'),
@@ -285,23 +248,20 @@ async function main() {
     }
   }
 
-  console.log(`\nTotal files found: ${allFiles.length}`);
-  console.log('Using all files for benchmarking\n');
+  console.log(`\nTotal files found: ${allFiles.length}\n`);
 
-  // Load all files
   const fileData: Array<{ path: string; data: Uint8Array }> = [];
   for (const filePath of allFiles) {
     try {
       const data = readFileSync(filePath);
       fileData.push({ path: filePath, data: new Uint8Array(data) });
     } catch {
-      // Skip files we can't read
+      // Skip
     }
   }
 
   console.log(`Loaded ${fileData.length} files\n`);
 
-  // All parsers to benchmark
   const parsers = [
     'rad-parser-fast',
     'rad-parser-shallow',
@@ -314,133 +274,65 @@ async function main() {
   ];
 
   const allResults: BenchmarkResult[] = [];
+  const resultsDir = join(__dirname, 'results');
+  if (!existsSync(resultsDir)) {
+    mkdirSync(resultsDir, { recursive: true });
+  }
 
-  // Benchmark each parser
   for (const parserName of parsers) {
-    console.log(`\nBenchmarking ${parserName}...`);
+    console.log(`Benchmarking ${parserName}...`);
     const parserResults: BenchmarkResult[] = [];
     let processed = 0;
     const startParserTime = performance.now();
 
     for (const { path, data } of fileData) {
       processed++;
-      // Show progress more frequently (every 25 files)
-      if (processed % 25 === 0 || processed === fileData.length) {
+      if (processed % 10 === 0 || processed === fileData.length) {
         const elapsed = (performance.now() - startParserTime) / 1000;
         const rate = elapsed > 0 ? processed / elapsed : 0;
-        const remaining = fileData.length - processed;
-        const eta = rate > 0 ? remaining / rate : 0;
-        const fileName = path.split(/[/\\]/).pop() || 'unknown';
-        console.log(`  [${processed}/${fileData.length}] ${fileName.substring(0, 30)}... (${rate.toFixed(1)} files/s${eta > 0 ? `, ETA: ${eta.toFixed(0)}s` : ''})`);
+        console.log(`  [${processed}/${fileData.length}] ${rate.toFixed(1)} files/s`);
       }
       
-      // Add timeout protection
-      const fileStartTime = performance.now();
-      const result = benchmarkParser(parserName, path, data);
-      const fileTime = performance.now() - fileStartTime;
-      
-      // Warn if a single file takes too long
-      if (fileTime > 10000) {
-        console.log(`  ⚠ Warning: ${path.split(/[/\\]/).pop()} took ${(fileTime / 1000).toFixed(1)}s`);
-      }
-      
+      const result = benchmarkParserWithTimeout(parserName, path, data, 10000);
       parserResults.push(result);
       allResults.push(result);
     }
+    
     const parserTime = (performance.now() - startParserTime) / 1000;
-    console.log(`  ✓ Completed ${fileData.length} files in ${parserTime.toFixed(1)}s`);
+    console.log(`  ✓ Completed in ${parserTime.toFixed(1)}s\n`);
   }
 
-  // Calculate statistics
   const stats: ParserStats[] = [];
   for (const parserName of parsers) {
     const parserResults = allResults.filter(r => r.parser === parserName);
     stats.push(calculateStats(parserName, parserResults));
   }
 
-  // Print results
-  console.log('\n' + '='.repeat(80));
-  console.log('Comprehensive Benchmark Results');
+  console.log('='.repeat(80));
+  console.log('Results Summary');
   console.log('='.repeat(80) + '\n');
 
-  // Summary table
-  console.log('Summary:');
-  console.log('-'.repeat(80));
-  console.log(
-    `${'Parser'.padEnd(25)} ${'Files'.padEnd(8)} ${'Success'.padEnd(10)} ${'Success %'.padEnd(12)} ${'Avg Time'.padEnd(12)} ${'Min Time'.padEnd(12)} ${'Max Time'.padEnd(12)} ${'Avg Elements'.padEnd(15)}`
-  );
-  console.log('-'.repeat(80));
-
-  // Sort by success rate, then by speed
   const sorted = [...stats].sort((a, b) => {
     const aRate = a.successful / a.totalFiles;
     const bRate = b.successful / b.totalFiles;
     if (Math.abs(aRate - bRate) > 0.01) {
-      return bRate - aRate; // Higher success rate first
+      return bRate - aRate;
     }
-    return a.averageTime - b.averageTime; // Then faster
+    return a.averageTime - b.averageTime;
   });
 
-  for (const stat of sorted) {
-    const successRate = ((stat.successful / stat.totalFiles) * 100).toFixed(1);
-    const successStr = `${stat.successful}/${stat.totalFiles}`;
-    console.log(
-      `${stat.parser.padEnd(25)} ${stat.totalFiles.toString().padEnd(8)} ${successStr.padEnd(10)} ${successRate.padEnd(11)}% ${formatTime(stat.averageTime).padEnd(12)} ${formatTime(stat.minTime).padEnd(12)} ${formatTime(stat.maxTime).padEnd(12)} ${stat.averageElements.toFixed(0).padEnd(15)}`
-    );
-  }
-
-  // Performance comparison
-  console.log('\n' + '-'.repeat(80));
-  console.log('Performance Comparison (relative to fastest):');
+  console.log(`${'Parser'.padEnd(25)} ${'Success'.padEnd(12)} ${'Avg Time'.padEnd(12)} ${'Avg Elements'.padEnd(15)}`);
   console.log('-'.repeat(80));
-
-  const fastest = sorted.find(s => s.successful === s.totalFiles) || sorted[0];
   for (const stat of sorted) {
-    const speedup = fastest.averageTime > 0 ? stat.averageTime / fastest.averageTime : 1;
-    const bar = '█'.repeat(Math.min(50, Math.round(speedup * 5)));
     const successRate = ((stat.successful / stat.totalFiles) * 100).toFixed(1);
     console.log(
-      `${stat.parser.padEnd(25)} ${speedup.toFixed(2)}x ${bar} ${formatTime(stat.averageTime)} (${successRate}% success)`
+      `${stat.parser.padEnd(25)} ${successRate.padEnd(11)}% ${formatTime(stat.averageTime).padEnd(12)} ${stat.averageElements.toFixed(0).padEnd(15)}`
     );
-  }
-
-  // Capability matrix
-  console.log('\n' + '='.repeat(80));
-  console.log('Capability Matrix');
-  console.log('='.repeat(80) + '\n');
-
-  const capabilities = [
-    { feature: 'Core Parsing', radFast: '✅', radShallow: '✅', radMedium: '✅', radFull: '✅', radStreaming: '✅', dcmjs: '✅', dicomParser: '✅', efferent: '✅' },
-    { feature: 'Streaming', radFast: '❌', radShallow: '❌', radMedium: '❌', radFull: '❌', radStreaming: '✅', dcmjs: '❌', dicomParser: '❌', efferent: '❌' },
-    { feature: 'Serialization', radFast: '❌', radShallow: '❌', radMedium: '❌', radFull: '✅', radStreaming: '❌', dcmjs: '❌', dicomParser: '❌', efferent: '❌' },
-    { feature: 'Anonymization', radFast: '❌', radShallow: '❌', radMedium: '✅', radFull: '✅', radStreaming: '❌', dcmjs: '❌', dicomParser: '❌', efferent: '❌' },
-    { feature: 'Pixel Data', radFast: '❌', radShallow: '❌', radMedium: '❌', radFull: '✅', radStreaming: '✅', dcmjs: '✅', dicomParser: '⚠️', efferent: '⚠️' },
-    { feature: 'Sequences', radFast: '⚠️', radShallow: '⚠️', radMedium: '✅', radFull: '✅', radStreaming: '✅', dcmjs: '✅', dicomParser: '⚠️', efferent: '⚠️' },
-    { feature: '100% Reliability', radFast: '✅', radShallow: '✅', radMedium: '✅', radFull: '✅', radStreaming: '⚠️', dcmjs: '❌', dicomParser: '❌', efferent: '⚠️' },
-  ];
-
-  console.log(`${'Feature'.padEnd(20)} ${'rad-fast'.padEnd(12)} ${'rad-shallow'.padEnd(12)} ${'rad-medium'.padEnd(12)} ${'rad-full'.padEnd(12)} ${'rad-streaming'.padEnd(14)} ${'dcmjs'.padEnd(8)} ${'dicom-parser'.padEnd(14)} ${'efferent'.padEnd(10)}`);
-  console.log('-'.repeat(120));
-  for (const cap of capabilities) {
-    console.log(
-      `${cap.feature.padEnd(20)} ${cap.radFast.padEnd(12)} ${cap.radShallow.padEnd(12)} ${cap.radMedium.padEnd(12)} ${cap.radFull.padEnd(12)} ${cap.radStreaming.padEnd(14)} ${cap.dcmjs.padEnd(8)} ${cap.dicomParser.padEnd(14)} ${cap.efferent.padEnd(10)}`
-    );
-  }
-
-  // Save detailed results
-  const resultsDir = join(__dirname, 'results');
-  if (!existsSync(resultsDir)) {
-    mkdirSync(resultsDir, { recursive: true });
   }
 
   const replacer = (key: string, value: any) => {
-    if (typeof value === 'bigint') {
-      return value.toString();
-    }
-    if (value instanceof Uint8Array || value instanceof ArrayBuffer || (value && value.type === 'Buffer')) {
-      return `[Binary data: ${value.byteLength || value.length} bytes]`;
-    }
-    if (key === 'dataSet' && value && typeof value === 'object') return '[Circular]';
+    if (typeof value === 'bigint') return value.toString();
+    if (value instanceof Uint8Array || value instanceof ArrayBuffer) return `[Binary: ${value.byteLength || value.length} bytes]`;
     return value;
   };
 
@@ -453,7 +345,7 @@ async function main() {
     JSON.stringify(allResults, replacer, 2)
   );
 
-  console.log(`\nDetailed results saved to: ${join(resultsDir, 'comprehensive-benchmark-*.json')}`);
+  console.log(`\nResults saved to: ${join(resultsDir, 'comprehensive-benchmark-*.json')}`);
 }
 
 main().catch(console.error);

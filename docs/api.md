@@ -23,7 +23,7 @@ These are the primary functions you'll use for most DICOM parsing tasks.
 
 ### `parse()`
 
-The main entry point for parsing a DICOM file buffer. It's a versatile function that can be configured for different parsing depths.
+Main entry point for parsing a DICOM file buffer. Configure parsing depth via `options.type`.
 
 ```typescript
 parse(byteArray: Uint8Array, options?: UnifiedParseOptions): DicomDataSet | ShallowDicomDataSet
@@ -31,12 +31,14 @@ parse(byteArray: Uint8Array, options?: UnifiedParseOptions): DicomDataSet | Shal
 
 **Parameters:**
 
-*   `byteArray`: A `Uint8Array` containing the raw bytes of the DICOM file.
-*   `options` (optional): An object to control the parsing strategy.
-    *   `type`:
-        *   `'full'` (default): Parses the entire dataset, including pixel data. This provides a `DicomDataSet` with all values populated.
-        *   `'light'`: Parses all tags and decodes their values, but **skips** the bulky pixel data value (`7FE0,0010`). This is useful when you only need metadata.
-        *   `'shallow'`: Performs the fastest parse. It reads only the tag information (group, element, VR, length, data offset) but does **not** read the values. The returned `ShallowDicomDataSet` is a map of tags to their metadata, without the `Value` property.
+- `byteArray`: `Uint8Array` with raw DICOM bytes.
+- `options` (optional):
+  - `type`:
+    - `'fast'`: Ultra-fast header scan (minimal metadata, no values; safe skipping for undefined-length data).
+    - `'shallow'`: Tag metadata only (offset/length/VR), no values.
+    - `'light'` (aka medium): Full metadata, skips pixel data value (best for metadata/anonymization).
+    - `'full'` (default): Full parse including pixel data.
+    - `'lazy'`: Returns a proxy that reads values on demand (built atop shallow scan).
 
 ### `parseAndDecode()`
 
@@ -83,7 +85,13 @@ For large files or network streams, the `StreamingParser` allows you to process 
 
 ### `StreamingParser`
 
-A class that consumes chunks of a DICOM file and emits events as it parses elements.
+Consumes chunks of a DICOM file and fires callbacks as elements are parsed.
+
+**Constructor options:**
+- `onElement?: (el) => void`
+- `onError?: (err: Error) => void`
+- `maxBufferSize?: number` (default 10MB)
+- `maxIterations?: number` (default 1000)
 
 #### **Example: Streaming from a File (Node.js)**
 
@@ -91,36 +99,18 @@ A class that consumes chunks of a DICOM file and emits events as it parses eleme
 import * as fs from 'fs';
 import { StreamingParser } from 'rad-parser';
 
-// Path to your DICOM file
-const filePath = 'large_dicom_file.dcm';
-
-const streamParser = new StreamingParser();
-
-// Listen for parsed elements
-streamParser.on('element', (element) => {
-    // Access tag, VR, length, and value (if parsed)
-    console.log(`Parsed Element: ${element.tag}, VR: ${element.vr}, Length: ${element.length}`);
+const parser = new StreamingParser({
+  onElement: (el) => {
+    // el.dict contains parsed element(s) for this chunk
+  },
+  onError: (err) => console.error('Streaming error:', err),
+  maxBufferSize: 50 * 1024 * 1024, // optional
+  maxIterations: 500,              // optional
 });
 
-streamParser.on('error', (err) => {
-    console.error('Streaming error:', err);
-});
-
-streamParser.on('end', () => {
-    console.log('Finished parsing stream.');
-    // The full dataset is available here if needed
-    const finalDataset = streamParser.getDataset();
-    console.log(`Final Patient Name: ${finalDataset.string('x00100010')}`);
-});
-
-// Create a read stream and pipe it to the parser
-const readStream = fs.createReadStream(filePath);
-readStream.on('data', (chunk) => {
-    streamParser.processChunk(new Uint8Array(chunk));
-});
-readStream.on('end', () => {
-    streamParser.finalize();
-});
+const readStream = fs.createReadStream('large.dcm');
+readStream.on('data', (chunk) => parser.processChunk(new Uint8Array(chunk)));
+readStream.on('end', () => parser.finalize());
 ```
 
 ---
